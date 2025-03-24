@@ -32,6 +32,8 @@ type Item struct {
 	Title       string `json:"title,omitempty"`
 	Parts       []int  `json:"parts,omitempty"`
 	Descendants int    `json:"descendants,omitempty"`
+	Rank        int    `json:"rank,omitempty"`
+	Voted       bool   `json:"voted,omitempty"`
 }
 
 // User represents a Hacker News user
@@ -583,19 +585,20 @@ func (c *Client) GetStoriesPage(storyType string, page, perPage int) ([]Item, er
 	type result struct {
 		item *Item
 		err  error
+		idx  int // Add index to track original position
 	}
 	results := make(chan result, len(pageIDs))
 
 	// Fetch items concurrently
-	for _, id := range pageIDs {
-		go func(id int) {
+	for i, id := range pageIDs {
+		go func(id, idx int) {
 			item, err := c.GetItem(id)
-			results <- result{item: item, err: err}
-		}(id)
+			results <- result{item: item, err: err, idx: idx}
+		}(id, i)
 	}
 
 	// Collect results
-	items := make([]Item, 0, len(pageIDs))
+	collected := make([]result, len(pageIDs))
 	var lastErr error
 	for i := 0; i < len(pageIDs); i++ {
 		res := <-results
@@ -604,6 +607,12 @@ func (c *Client) GetStoriesPage(storyType string, page, perPage int) ([]Item, er
 			lastErr = res.err
 			continue
 		}
+		collected[res.idx] = res
+	}
+
+	// Build final items slice in correct order
+	items := make([]Item, 0, len(pageIDs))
+	for _, res := range collected {
 		if res.item != nil && (res.item.Type == "story" || res.item.Type == "job") {
 			items = append(items, *res.item)
 		}
@@ -612,6 +621,11 @@ func (c *Client) GetStoriesPage(storyType string, page, perPage int) ([]Item, er
 	// If we got no items but had errors, return the last error
 	if len(items) == 0 && lastErr != nil {
 		return nil, fmt.Errorf("failed to fetch any valid stories: %v", lastErr)
+	}
+
+	// taking into account page/perpage, add a Rank field to each item
+	for i := range items {
+		items[i].Rank = start + i + 1
 	}
 
 	return items, nil

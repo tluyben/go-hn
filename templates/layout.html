@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ .Title }} - Modern Hacker News</title>
     <link rel="stylesheet" href="/static/css/style.css">
-    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <script src="/static/js/htmx.min.js"></script>
     <link rel="icon" type="image/png" href="/static/img/favicon.png">
 </head>
 <body>
@@ -32,29 +32,26 @@
                 </div>
             </div>
             <div class="nav-right">
-                <div class="user-controls" hx-boost="true">
-                    <template x-if="!loggedIn">
-                        <a href="/login">login</a>
-                    </template>
-                    <template x-if="loggedIn">
-                        <div class="user-menu">
-                            <span x-text="username"></span>
-                            <span>|</span>
-                            <a href="/logout">logout</a>
-                        </div>
-                    </template>
+                <div class="user-controls">
+                    <a href="/login">login</a>
                 </div>
             </div>
         </nav>
     </header>
 
     <main class="content">
-        {{ template "content" . }}
+        {{ if eq .Content "submit-content" }}
+        {{ template "submit-content" . }}
+        {{ else if eq .Content "comments-content" }}
+        {{ template "comments-content" . }}
+        {{ else }}
+        {{ template "stories-content" . }}
+        {{ end }}
     </main>
 
     <footer class="footer">
         <div class="footer-content">
-            <nav class="footer-links">
+            <!-- <nav class="footer-links">
                 <a href="/guidelines">Guidelines</a>
                 <span>|</span>
                 <a href="/faq">FAQ</a>
@@ -66,7 +63,7 @@
                 <a href="/legal">Legal</a>
                 <span>|</span>
                 <a href="/contact">Contact</a>
-            </nav>
+            </nav> -->
         </div>
     </footer>
 </body>

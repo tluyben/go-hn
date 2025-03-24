@@ -109,24 +109,27 @@ func main() {
 			log.Printf("Warning: No stories returned for page %d", page)
 		}
 
+		// Debug log the first story if available
+		if len(stories) > 0 {
+			log.Printf("First story: Title=%s, By=%s, Score=%d", stories[0].Title, stories[0].By, stories[0].Score)
+		}
+
 		data := map[string]interface{}{
 			"Title":    "Hacker News",
 			"Stories":  stories,
 			"Page":     page,
 			"NextPage": page + 1,
 			"MoreLink": len(stories) == perPage,
-			"Content":  "index",
 		}
 
 		var templateErr error
-		templateName := "base"
 		if r.Header.Get("HX-Request") == "true" {
-			templateName = "stories.html"
-			log.Printf("HTMX request detected, using template: %s", templateName)
+			log.Printf("HTMX request detected, executing content template")
+			templateErr = tmpl.ExecuteTemplate(w, "content", data)
+		} else {
+			log.Printf("Regular request, executing base template")
+			templateErr = tmpl.ExecuteTemplate(w, "base", data)
 		}
-
-		log.Printf("Executing template: %s", templateName)
-		templateErr = tmpl.ExecuteTemplate(w, templateName, data)
 
 		if templateErr != nil {
 			log.Printf("Template error: %v", templateErr)
@@ -183,7 +186,7 @@ func main() {
 		if r.Method == "GET" {
 			data := map[string]interface{}{
 				"Title":   "Login",
-				"Content": "login",
+				"Content": "login-content",
 			}
 			tmpl.ExecuteTemplate(w, "base", data)
 			return
@@ -196,7 +199,7 @@ func main() {
 			data := map[string]interface{}{
 				"Title":   "Login",
 				"Error":   err.Error(),
-				"Content": "login",
+				"Content": "login-content",
 			}
 			tmpl.ExecuteTemplate(w, "base", data)
 			return
@@ -210,7 +213,7 @@ func main() {
 		if r.Method == "GET" {
 			data := map[string]interface{}{
 				"Title":   "Submit",
-				"Content": "submit",
+				"Content": "submit-content",
 			}
 			tmpl.ExecuteTemplate(w, "base", data)
 			return
@@ -224,7 +227,7 @@ func main() {
 			data := map[string]interface{}{
 				"Title":   "Submit",
 				"Error":   err.Error(),
-				"Content": "submit",
+				"Content": "submit-content",
 			}
 			tmpl.ExecuteTemplate(w, "base", data)
 			return

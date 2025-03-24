@@ -1,4 +1,4 @@
-{{ define "content" }}
+{{ define "stories-content" }}
 <div class="stories-container">
     {{ range .Stories }}
     <article class="story-item" id="story-{{.ID}}">
@@ -16,17 +16,19 @@
         </div>
         <div class="story-content">
             <div class="story-title-line">
-                <a href="{{.URL}}" class="story-title" target="_blank">{{.Title}}</a>
-                {{ if .Domain }}
-                <span class="story-domain">({{.Domain}})</span>
+                <a href="{{ if .URL }}{{.URL}}{{ else }}/item/{{.ID}}{{ end }}" class="story-title" target="_blank">
+                    {{.Title}}
+                </a>
+                {{ if .URL }}
+                <span class="story-domain">({{getDomain .URL}})</span>
                 {{ end }}
             </div>
             <div class="story-details">
                 <span class="story-score">{{.Score}} points</span>
                 <span class="story-author">by <a href="/user/{{.By}}">{{.By}}</a></span>
-                <span class="story-time">{{.TimeAgo}}</span>
+                <span class="story-time">{{timeAgo .Time}}</span>
                 <span class="story-comments">
-                    <a href="/item/{{.ID}}">{{.Descendants}} comments</a>
+                    <a href="/item/{{.ID}}">{{ if .Descendants }}{{ .Descendants }} comments{{ else }}discuss{{ end }}</a>
                 </span>
                 {{ if $.LoggedIn }}
                 <span class="story-actions">
