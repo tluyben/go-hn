@@ -33,7 +33,7 @@ type Item struct {
 	Parts       []int  `json:"parts,omitempty"`
 	Descendants int    `json:"descendants,omitempty"`
 	Rank        int    `json:"rank,omitempty"`
-	Voted       bool   `json:"voted,omitempty"`
+	VoteDir     *int   `json:"vote_dir,omitempty"` // 1 for upvote, -1 for downvote, nil for no vote
 }
 
 // User represents a Hacker News user
@@ -553,6 +553,10 @@ func (c *Client) GetStoriesPage(storyType string, page, perPage int) ([]Item, er
 	start := (page - 1) * perPage
 	end := start + perPage
 
+	if storyType == "paststories" {
+		storyType = "beststories"
+	}
+
 	// Get the full list of story IDs
 	url := fmt.Sprintf("%s/%s.json", c.apiBase, storyType)
 	req, err := http.NewRequest("GET", url, nil)
@@ -629,6 +633,94 @@ func (c *Client) GetStoriesPage(storyType string, page, perPage int) ([]Item, er
 	}
 
 	return items, nil
+}
+
+// CommentWithStory represents a comment with its parent story information
+type CommentWithStory struct {
+	Comment Item
+	Story   *Item
+}
+
+// GetNewComments fetches the latest comments with their parent stories
+func (c *Client) GetNewComments(limit int) ([]CommentWithStory, error) {
+	// Get the latest items
+	maxID, err := c.GetMaxItem()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get max item ID: %v", err)
+	}
+
+	// Create a channel to receive items and errors
+	type result struct {
+		item *Item
+		err  error
+	}
+	results := make(chan result, limit)
+
+	// Start from the latest item and work backwards
+	startID := maxID
+	endID := maxID - limit*2 // Fetch more items since not all will be comments
+	if endID < 0 {
+		endID = 0
+	}
+
+	// Fetch items concurrently
+	for id := startID; id > endID; id-- {
+		go func(id int) {
+			item, err := c.GetItem(id)
+			results <- result{item: item, err: err}
+		}(id)
+	}
+
+	// Collect comments
+	comments := make([]CommentWithStory, 0, limit)
+	var lastErr error
+	for i := 0; i < limit*2 && len(comments) < limit; i++ {
+		res := <-results
+		if res.err != nil {
+			lastErr = res.err
+			continue
+		}
+		if res.item != nil && res.item.Type == "comment" {
+			// For each comment, find its root parent (the story)
+			story, err := c.GetRootParent(res.item)
+			if err != nil {
+				log.Printf("Error fetching story for comment %d: %v", res.item.ID, err)
+				continue
+			}
+			comments = append(comments, CommentWithStory{
+				Comment: *res.item,
+				Story:   story,
+			})
+		}
+	}
+
+	// If we got no items but had errors, return the last error
+	if len(comments) == 0 && lastErr != nil {
+		return nil, fmt.Errorf("failed to fetch any valid comments: %v", lastErr)
+	}
+
+	return comments, nil
+}
+
+// GetRootParent recursively fetches parent items until it finds the root story
+func (c *Client) GetRootParent(item *Item) (*Item, error) {
+	if item == nil {
+		return nil, fmt.Errorf("nil item")
+	}
+
+	// If this is already a story or has no parent, return it
+	if item.Type == "story" || item.Parent == 0 {
+		return item, nil
+	}
+
+	// Fetch the parent
+	parent, err := c.GetItem(item.Parent)
+	if err != nil {
+		return nil, err
+	}
+
+	// Recursively get the root parent
+	return c.GetRootParent(parent)
 }
 
 // doRequest performs an HTTP request and unmarshals the response

@@ -36,12 +36,12 @@
                 <a href="/" class="logo">Y</a>
                 <a href="/" class="site-name">Hacker News</a>
                 <div id="mobile-menu" class="nav-links">
-                    <a href="/newest">new</a>
-                    <a href="/front">past</a>
+                    <a href="/newstories">new</a>
+                    <a href="/paststories">past</a>
                     <a href="/newcomments">comments</a>
-                    <a href="/ask">ask</a>
-                    <a href="/show">show</a>
-                    <a href="/jobs">jobs</a>
+                    <a href="/askstories">ask</a>
+                    <a href="/showstories">show</a>
+                    <a href="/jobstories">jobs</a>
                     <a href="/submit" class="submit-link">submit</a>
                 </div>
             </div>
@@ -80,6 +80,8 @@
         {{ template "submit-content" . }}
         {{ else if eq .Content "comments-content" }}
         {{ template "comments-content" . }}
+        {{ else if eq .Content "comments-list" }}
+        {{ template "comments-list" . }}
         {{ else }}
         {{ template "stories-content" . }}
         {{ end }}

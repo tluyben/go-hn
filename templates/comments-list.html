@@ -1,0 +1,202 @@
+{{ define "comments-list" }}
+<div class="comments-container">
+    <div class="comment-items">
+        {{ range .Comments }}
+        <article class="comment-item" id="comment-{{.Comment.ID}}">
+            <div class="comment-meta">
+                <div class="vote-buttons">
+                    <button 
+                        class="vote-button up {{ if hasVoted .Comment.VoteDir 1 }}voted{{ end }}"
+                        hx-post="/vote"
+                        hx-vals='{"id": {{.Comment.ID}}, "type": "up"}'
+                        hx-swap="outerHTML"
+                        {{ if not $.LoggedIn }}disabled{{ end }}
+                    >
+                        ▲
+                    </button>
+                    <button 
+                        class="vote-button down {{ if hasVoted .Comment.VoteDir -1 }}voted{{ end }}"
+                        hx-post="/vote"
+                        hx-vals='{"id": {{.Comment.ID}}, "type": "down"}'
+                        hx-swap="outerHTML"
+                        {{ if not $.LoggedIn }}disabled{{ end }}
+                    >
+                        ▼
+                    </button>
+                </div>
+            </div>
+            <div class="comment-content">
+                <div class="comment-header">
+                    <span class="comment-author"><a href="/user/{{.Comment.By}}">{{.Comment.By}}</a></span>
+                    <span class="comment-time"><a href="/item/{{.Comment.ID}}">{{timeAgo .Comment.Time}}</a></span>
+                    {{ if .Comment.Parent }}
+                    <span class="comment-parent">
+                        | <a href="/item/{{.Comment.Parent}}">parent</a>
+                    </span>
+                    {{ end }}
+                    {{ if .Comment.Score }}
+                    <span class="comment-score">| {{.Comment.Score}} points</span>
+                    {{ end }}
+                    <span class="comment-item-link">
+                        | <a href="/item/{{.Comment.ID}}">link</a>
+                    </span>
+                    {{ if $.LoggedIn }}
+                    <span class="comment-actions">
+                        | <a href="#" class="action-link" hx-post="/flag" hx-vals='{"id": {{.Comment.ID}}}'>flag</a>
+                        | <a href="/item/{{.Comment.ID}}#reply" class="action-link">reply</a>
+                    </span>
+                    {{ end }}
+                    {{ if .Story }}
+                    <span class="comment-story">
+                        | on: <a href="/item/{{.Story.ID}}">{{.Story.Title}}</a>
+                    </span>
+                    {{ end }}
+                </div>
+                <div class="comment-text" dir="auto">
+                    {{.Comment.Text | unescape}}
+                </div>
+            </div>
+        </article>
+        {{ end }}
+    </div>
+    
+    <div class="pagination">
+        {{ if .MoreLink }}
+        <a href="?p={{.NextPage}}" 
+           class="more-link"
+           hx-get="?p={{.NextPage}}&htmx=true"
+           hx-target=".comment-items"
+           hx-swap="beforeend"
+           hx-trigger="click"
+        >
+            More
+        </a>
+        {{ end }}
+    </div>
+</div>
+
+<style>
+.comments-container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0.5rem;
+}
+
+.comment-item {
+    display: flex;
+    gap: 0.5rem;
+    padding: 0.5rem 0;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.comment-meta {
+    flex-shrink: 0;
+    width: 2rem;
+    text-align: center;
+}
+
+.vote-buttons {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.125rem;
+}
+
+.vote-button {
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 0.7rem;
+    padding: 0.125rem;
+    transition: color 0.2s;
+    line-height: 1;
+}
+
+.vote-button:hover:not(:disabled) {
+    color: var(--accent-color);
+}
+
+.vote-button.voted {
+    color: var(--accent-color);
+}
+
+.vote-button:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+
+.vote-button.down {
+    margin-top: -0.25rem;
+}
+
+.comment-content {
+    flex-grow: 1;
+    min-width: 0;
+    font-size: 0.9rem;
+    line-height: 1.4;
+}
+
+.comment-header {
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+    margin-bottom: 0.25rem;
+}
+
+.comment-header a {
+    color: inherit;
+    text-decoration: none;
+}
+
+.comment-header a:hover {
+    text-decoration: underline;
+}
+
+.comment-author a {
+    color: var(--text-primary);
+    font-weight: 500;
+}
+
+.comment-text {
+    color: var(--text-primary);
+    overflow-wrap: break-word;
+    white-space: pre-wrap;
+}
+
+.action-link {
+    color: var(--text-secondary);
+    text-decoration: none;
+}
+
+.action-link:hover {
+    text-decoration: underline;
+}
+
+.pagination {
+    margin-top: 1rem;
+    text-align: center;
+}
+
+.more-link {
+    display: inline-block;
+    padding: 0.5rem 1rem;
+    color: var(--text-primary);
+    text-decoration: none;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    transition: background-color 0.2s;
+}
+
+.more-link:hover {
+    background-color: var(--hover-color);
+}
+
+.comment-story {
+    color: var(--text-secondary);
+}
+
+.comment-story a {
+    color: var(--text-primary);
+}
+</style>
+{{ end }} 

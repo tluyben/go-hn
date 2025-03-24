@@ -6,7 +6,7 @@
             <div class="story-meta">
                 <span class="story-rank">{{.Rank}}.</span>
                 <button 
-                    class="vote-button {{ if .Voted }}voted{{ end }}"
+                    class="vote-button {{ if hasVoted .VoteDir 1 }}voted{{ end }}"
                     hx-post="/vote"
                     hx-vals='{"id": {{.ID}}, "type": "up"}'
                     hx-swap="outerHTML"
@@ -68,7 +68,7 @@
     <div class="story-meta">
         <span class="story-rank">{{.Rank}}.</span>
         <button 
-            class="vote-button {{ if .Voted }}voted{{ end }}"
+            class="vote-button {{ if hasVoted .VoteDir 1 }}voted{{ end }}"
             hx-post="/vote"
             hx-vals='{"id": {{.ID}}, "type": "up"}'
             hx-swap="outerHTML"

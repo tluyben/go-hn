@@ -3,6 +3,7 @@ package main
 import (
 	"embed"
 	"fmt"
+	"html"
 	"html/template"
 	"log"
 	"net/http"
@@ -60,6 +61,15 @@ var funcMap = template.FuncMap{
 			return urlStr
 		}
 		return u.Host
+	},
+	"unescape": func(s string) template.HTML {
+		return template.HTML(html.UnescapeString(s))
+	},
+	"hasVoted": func(dir *int, val int) bool {
+		if dir == nil {
+			return false
+		}
+		return *dir == val
 	},
 }
 
@@ -151,9 +161,89 @@ func main() {
 	// Serve static files
 	http.Handle("/static/", http.FileServer(http.FS(content)))
 
-	// Home route - show top stories
+	// Home route - show stories based on section
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Handling request for: %s", r.URL.Path)
+
+		// Get the section from the URL path
+		section := r.URL.Path[1:] // Remove leading slash
+		if section == "" {
+			section = "topstories" // Default to topstories for root path
+		}
+
+		// Validate section
+		validSections := map[string]bool{
+			"topstories":  true,
+			"newstories":  true,
+			"paststories": true,
+			"askstories":  true,
+			"showstories": true,
+			"jobstories":  true,
+		}
+
+		if section == "newcomments" {
+			page := 1
+			perPage := 30
+
+			if pageStr := r.URL.Query().Get("p"); pageStr != "" {
+				if p, err := strconv.Atoi(pageStr); err == nil && p > 0 {
+					page = p
+					log.Printf("Using page number: %d", page)
+				} else if err != nil {
+					log.Printf("Invalid page number '%s': %v", pageStr, err)
+				}
+			}
+
+			log.Printf("Fetching new comments (page: %d, perPage: %d)", page, perPage)
+			comments, err := client.GetNewComments(page * perPage)
+			if err != nil {
+				log.Printf("Error fetching comments: %v", err)
+				http.Error(w, "Failed to load comments", http.StatusInternalServerError)
+				return
+			}
+
+			// Calculate pagination
+			start := (page - 1) * perPage
+			end := start + perPage
+			if end > len(comments) {
+				end = len(comments)
+			}
+			pageComments := comments[start:end]
+
+			log.Printf("Retrieved %d comments", len(pageComments))
+			if len(pageComments) == 0 {
+				log.Printf("Warning: No comments returned for page %d", page)
+			}
+
+			data := createTemplateData("New Comments", "comments-list", r)
+			data["Comments"] = pageComments
+			data["Page"] = page
+			data["NextPage"] = page + 1
+			data["MoreLink"] = end < len(comments)
+
+			var templateErr error
+			if r.Header.Get("HX-Request") == "true" {
+				log.Printf("HTMX request detected, executing content template")
+				templateErr = tmpl.ExecuteTemplate(w, "comments-list", data)
+			} else {
+				log.Printf("Regular request, executing base template")
+				templateErr = tmpl.ExecuteTemplate(w, "base", data)
+			}
+
+			if templateErr != nil {
+				log.Printf("Template error: %v", templateErr)
+				http.Error(w, "Failed to render page", http.StatusInternalServerError)
+				return
+			}
+
+			log.Printf("Successfully rendered page with %d comments", len(pageComments))
+			return
+		}
+
+		if !validSections[section] {
+			http.Error(w, "Invalid section", http.StatusBadRequest)
+			return
+		}
 
 		page := 1
 		perPage := 30
@@ -167,8 +257,8 @@ func main() {
 			}
 		}
 
-		log.Printf("Fetching stories (page: %d, perPage: %d)", page, perPage)
-		stories, err := client.GetStoriesPage("topstories", page, perPage)
+		log.Printf("Fetching stories for section %s (page: %d, perPage: %d)", section, page, perPage)
+		stories, err := client.GetStoriesPage(section, page, perPage)
 		if err != nil {
 			log.Printf("Error fetching stories: %v", err)
 			http.Error(w, "Failed to load stories", http.StatusInternalServerError)
@@ -177,7 +267,7 @@ func main() {
 
 		log.Printf("Retrieved %d stories", len(stories))
 		if len(stories) == 0 {
-			log.Printf("Warning: No stories returned for page %d", page)
+			log.Printf("Warning: No stories returned for section %s page %d", section, page)
 		}
 
 		// Debug log the first story if available
@@ -190,6 +280,7 @@ func main() {
 		data["Page"] = page
 		data["NextPage"] = page + 1
 		data["MoreLink"] = len(stories) == perPage
+		data["Section"] = section
 
 		var templateErr error
 		if r.Header.Get("HX-Request") == "true" {
