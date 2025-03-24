@@ -7,7 +7,7 @@ import (
 	"sync"
 
 	"github.com/blevesearch/bleve/v2"
-	"github.com/tluyben/go-hn/hn"
+	"github.com/tluyben/go-hn/types"
 )
 
 // SearchableItem represents an HN item with additional fields for search and user preferences
@@ -75,7 +75,7 @@ func newIndex() (*Index, error) {
 }
 
 // IndexItem adds or updates an item in the search index
-func (i *Index) IndexItem(item *hn.Item) error {
+func (i *Index) IndexItem(item *types.Item) error {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 

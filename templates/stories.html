@@ -49,10 +49,11 @@
         {{ if .MoreLink }}
         <a href="/{{.Section}}?p={{.NextPage}}" 
            class="more-link"
-           hx-get="/{{.Section}}?p={{.NextPage}}&htmx=true"
+           hx-get="/{{.Section}}?p={{.NextPage}}"
            hx-target=".story-items"
            hx-swap="beforeend"
            hx-trigger="click"
+           hx-push-url="false"
         >
             More
         </a>

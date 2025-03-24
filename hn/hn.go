@@ -14,30 +14,11 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
-)
 
-// Item represents a Hacker News item (story, comment, job, etc.)
-type Item struct {
-	ID          int    `json:"id"`
-	Deleted     bool   `json:"deleted,omitempty"`
-	Type        string `json:"type"`
-	By          string `json:"by,omitempty"`
-	Time        int    `json:"time"`
-	Text        string `json:"text,omitempty"`
-	Dead        bool   `json:"dead,omitempty"`
-	Parent      int    `json:"parent,omitempty"`
-	Poll        int    `json:"poll,omitempty"`
-	Kids        []int  `json:"kids,omitempty"`
-	URL         string `json:"url,omitempty"`
-	Score       int    `json:"score,omitempty"`
-	Title       string `json:"title,omitempty"`
-	Parts       []int  `json:"parts,omitempty"`
-	Descendants int    `json:"descendants,omitempty"`
-	Rank        int    `json:"rank,omitempty"`
-	VoteDir     *int   `json:"vote_dir,omitempty"` // 1 for upvote, -1 for downvote, nil for no vote
-}
+	"github.com/tluyben/go-hn/search"
+	"github.com/tluyben/go-hn/types"
+)
 
 // User represents a Hacker News user
 type User struct {
@@ -60,20 +41,20 @@ type SearchResult struct {
 
 // Client represents a Hacker News client
 type Client struct {
-	httpClient *http.Client
-	apiBase    string
-	webBase    string
-	searchBase string
-	loggedIn   bool
-	username   string
-	csrf       string
-	cache      map[int]*Item
-	cacheMu    sync.RWMutex // Mutex to protect cache access
-	logger     *log.Logger
-	semaphore  chan struct{} // Semaphore for limiting concurrent requests
-	stopChan   chan struct{} // Channel to stop background jobs
-	storyTypes []string      // List of story types to rotate through
-	currentIdx int           // Current index in storyTypes
+	httpClient  *http.Client
+	apiBase     string
+	webBase     string
+	searchBase  string
+	loggedIn    bool
+	username    string
+	csrf        string
+	cache       map[int]*types.Item
+	logger      *log.Logger
+	semaphore   chan struct{} // Semaphore for limiting concurrent requests
+	stopChan    chan struct{} // Channel to stop background jobs
+	storyTypes  []string      // List of story types to rotate through
+	currentIdx  int           // Current index in storyTypes
+	searchIndex *search.Index
 }
 
 // NewClient creates a new Hacker News client
@@ -97,52 +78,71 @@ func NewClient() (*Client, error) {
 	// Create a new logger with a mutex for thread safety
 	logger := log.New(io.Discard, "", log.LstdFlags)
 
+	// Initialize search index
+	searchIndex, err := search.GetIndex()
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize search index: %v", err)
+	}
+
 	return &Client{
 		httpClient: &http.Client{
 			Jar:       jar,
 			Timeout:   30 * time.Second,
 			Transport: transport,
 		},
-		apiBase:    "https://hacker-news.firebaseio.com/v0",
-		webBase:    "https://news.ycombinator.com",
-		searchBase: "https://hn.algolia.com/api/v1",
-		loggedIn:   false,
-		cache:      make(map[int]*Item),
-		logger:     logger,
-		semaphore:  make(chan struct{}, 3), // Limit to 3 concurrent requests
-		stopChan:   make(chan struct{}),
-		storyTypes: []string{"topstories", "newstories", "beststories", "askstories", "showstories", "jobstories"},
-		currentIdx: 0,
+		apiBase:     "https://hacker-news.firebaseio.com/v0",
+		webBase:     "https://news.ycombinator.com",
+		searchBase:  "https://hn.algolia.com/api/v1",
+		loggedIn:    false,
+		cache:       make(map[int]*types.Item),
+		logger:      logger,
+		semaphore:   make(chan struct{}, 3), // Limit to 3 concurrent requests
+		stopChan:    make(chan struct{}),
+		storyTypes:  []string{"topstories", "newstories", "beststories", "askstories", "showstories", "jobstories"},
+		currentIdx:  0,
+		searchIndex: searchIndex,
 	}, nil
 }
 
-// GetItem fetches an item by ID, using cache if available
-func (c *Client) GetItem(id int) (*Item, error) {
-	// Check cache first with read lock
-	c.cacheMu.RLock()
-	if item, ok := c.cache[id]; ok {
-		c.cacheMu.RUnlock()
-		return item, nil
+// GetItem fetches an item by ID, using search index if available
+func (c *Client) GetItem(id int) (*types.Item, error) {
+	// Try to get from search index first
+	searchableItem, err := c.searchIndex.GetItem(id)
+	if err == nil {
+		// Convert SearchableItem back to hn.Item
+		return &types.Item{
+			ID:          searchableItem.ID,
+			Type:        searchableItem.Type,
+			By:          searchableItem.By,
+			Time:        searchableItem.Time,
+			Text:        searchableItem.Text,
+			Parent:      searchableItem.Parent,
+			URL:         searchableItem.URL,
+			Score:       searchableItem.Score,
+			Title:       searchableItem.Title,
+			Descendants: searchableItem.Descendants,
+			Rank:        searchableItem.Rank,
+			VoteDir:     searchableItem.VoteDir,
+		}, nil
 	}
-	c.cacheMu.RUnlock()
 
-	// If not in cache, fetch from HN API
+	// If not found in index, fetch from HN API
 	url := fmt.Sprintf("%s/item/%d.json", c.apiBase, id)
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	var item Item
+	var item types.Item
 	err = c.doRequest(req, &item)
 	if err != nil {
 		return nil, err
 	}
 
-	// Cache the item with write lock
-	c.cacheMu.Lock()
-	c.cache[id] = &item
-	c.cacheMu.Unlock()
+	// Index the item for future use
+	if err := c.searchIndex.IndexItem(&item); err != nil {
+		c.logger.Printf("Failed to index item %d: %v", id, err)
+	}
 
 	return &item, nil
 }
@@ -208,7 +208,7 @@ func (c *Client) getStoryIDs(storyType string, limit int) ([]int, error) {
 }
 
 // getStories is a helper function to fetch full story items by type
-func (c *Client) getStories(storyType string, limit int) ([]Item, error) {
+func (c *Client) getStories(storyType string, limit int) ([]types.Item, error) {
 	ids, err := c.getStoryIDs(storyType, limit)
 	if err != nil {
 		return nil, err
@@ -216,7 +216,7 @@ func (c *Client) getStories(storyType string, limit int) ([]Item, error) {
 
 	// Create a channel to receive items and errors
 	type result struct {
-		item *Item
+		item *types.Item
 		err  error
 	}
 	results := make(chan result, len(ids))
@@ -230,7 +230,7 @@ func (c *Client) getStories(storyType string, limit int) ([]Item, error) {
 	}
 
 	// Collect results
-	items := make([]Item, 0, len(ids))
+	items := make([]types.Item, 0, len(ids))
 	var lastErr error
 	for i := 0; i < len(ids); i++ {
 		res := <-results
@@ -252,7 +252,7 @@ func (c *Client) getStories(storyType string, limit int) ([]Item, error) {
 }
 
 // GetTopStories fetches up to 500 top stories
-func (c *Client) GetTopStories(limit int) ([]Item, error) {
+func (c *Client) GetTopStories(limit int) ([]types.Item, error) {
 	return c.getStories("topstories", limit)
 }
 
@@ -597,12 +597,12 @@ func (c *Client) Comment(itemID int, text string) error {
 
 // result represents the result of a GetItem operation
 type result struct {
-	item *Item
+	item *types.Item
 	err  error
 }
 
 // GetStoriesPage fetches a specific page of stories
-func (c *Client) GetStoriesPage(storyType string, page, perPage int, skipCache bool) ([]Item, error) {
+func (c *Client) GetStoriesPage(storyType string, page, perPage int, skipCache bool) ([]types.Item, error) {
 	if page < 1 {
 		page = 1
 	}
@@ -626,9 +626,9 @@ func (c *Client) GetStoriesPage(storyType string, page, perPage int, skipCache b
 	var pageIDs []int
 	var results chan result
 	var errors chan error
-	var itemMap map[int]*Item
+	var itemMap map[int]*types.Item
 	var timeout <-chan time.Time
-	var items []Item
+	var items []types.Item
 
 	// Try to load from cache first if not skipping cache
 	if !skipCache {
@@ -700,7 +700,7 @@ paginate:
 	}
 
 	// Collect results with timeout
-	itemMap = make(map[int]*Item)
+	itemMap = make(map[int]*types.Item)
 	timeout = time.After(30 * time.Second)
 	for i := 0; i < len(pageIDs); i++ {
 		select {
@@ -724,7 +724,7 @@ paginate:
 	}
 
 	// Reconstruct the items in the original order with proper ranking
-	items = make([]Item, 0, len(pageIDs))
+	items = make([]types.Item, 0, len(pageIDs))
 	for i, id := range pageIDs {
 		if item, ok := itemMap[id]; ok {
 			item.Rank = start + i + 1
@@ -778,22 +778,38 @@ func (c *Client) writeToCache(storyType string, ids []int) error {
 
 // CommentWithStory represents a comment with its parent story information
 type CommentWithStory struct {
-	Comment Item
-	Story   *Item
+	Comment types.Item
+	Story   *types.Item
 }
 
 // GetNewComments fetches the latest comments with their parent stories
-func (c *Client) GetNewComments(limit int) ([]CommentWithStory, error) {
+func (c *Client) GetNewComments(limit int, skipCache bool) ([]CommentWithStory, error) {
+	c.logger.Printf("Starting GetNewComments with limit %d", limit)
+
+	// Try to load from cache first if not skipping cache
+	if !skipCache {
+		comments, err := c.loadCommentsFromCache()
+		if err == nil && len(comments) > 0 {
+			c.logger.Printf("Cache hit: found %d comments", len(comments))
+			if limit > 0 && limit < len(comments) {
+				return comments[:limit], nil
+			}
+			return comments, nil
+		}
+	}
+
 	// Get the latest items
 	maxID, err := c.GetMaxItem()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get max item ID: %v", err)
 	}
+	c.logger.Printf("Got max item ID: %d", maxID)
 
 	// Create a worker pool for concurrent requests
 	numWorkers := 5 // Limit concurrent requests
 	jobs := make(chan int, limit*2)
 	results := make(chan result, limit*2)
+	done := make(chan struct{}) // Channel to signal when all workers are done
 
 	// Start from the latest item and work backwards
 	startID := maxID
@@ -801,10 +817,14 @@ func (c *Client) GetNewComments(limit int) ([]CommentWithStory, error) {
 	if endID < 0 {
 		endID = 0
 	}
+	c.logger.Printf("Fetching items from %d to %d", startID, endID)
 
 	// Start workers
 	for w := 0; w < numWorkers; w++ {
 		go func() {
+			defer func() {
+				done <- struct{}{}
+			}()
 			for id := range jobs {
 				item, err := c.GetItem(id)
 				results <- result{item: item, err: err}
@@ -813,31 +833,46 @@ func (c *Client) GetNewComments(limit int) ([]CommentWithStory, error) {
 	}
 
 	// Send jobs to workers
-	for id := startID; id > endID; id-- {
-		jobs <- id
-	}
-	close(jobs)
+	go func() {
+		for id := startID; id > endID; id-- {
+			jobs <- id
+		}
+		close(jobs)
+	}()
 
-	// Collect comments
+	// Collect comments with timeout
 	comments := make([]CommentWithStory, 0, limit)
 	var lastErr error
-	for i := 0; i < limit*2 && len(comments) < limit; i++ {
-		res := <-results
-		if res.err != nil {
-			lastErr = res.err
-			continue
-		}
-		if res.item != nil && res.item.Type == "comment" {
-			// For each comment, find its root parent (the story)
-			story, err := c.GetRootParent(res.item)
-			if err != nil {
-				log.Printf("Error fetching story for comment %d: %v", res.item.ID, err)
+	timeout := time.After(30 * time.Second) // 30 second timeout
+	activeWorkers := numWorkers
+
+	for len(comments) < limit && activeWorkers > 0 {
+		select {
+		case res := <-results:
+			if res.err != nil {
+				lastErr = res.err
+				c.logger.Printf("Error fetching item: %v", res.err)
 				continue
 			}
-			comments = append(comments, CommentWithStory{
-				Comment: *res.item,
-				Story:   story,
-			})
+			if res.item != nil && res.item.Type == "comment" {
+				c.logger.Printf("Found comment %d", res.item.ID)
+				// For each comment, find its root parent (the story)
+				story, err := c.GetRootParent(res.item)
+				if err != nil {
+					c.logger.Printf("Error fetching story for comment %d: %v", res.item.ID, err)
+					continue
+				}
+				comments = append(comments, CommentWithStory{
+					Comment: *res.item,
+					Story:   story,
+				})
+				c.logger.Printf("Added comment %d with story %d", res.item.ID, story.ID)
+			}
+		case <-done:
+			activeWorkers--
+			c.logger.Printf("Worker finished, %d workers remaining", activeWorkers)
+		case <-timeout:
+			return nil, fmt.Errorf("timeout while fetching comments")
 		}
 	}
 
@@ -846,11 +881,61 @@ func (c *Client) GetNewComments(limit int) ([]CommentWithStory, error) {
 		return nil, fmt.Errorf("failed to fetch any valid comments: %v", lastErr)
 	}
 
+	c.logger.Printf("Successfully fetched %d comments", len(comments))
+
+	// Write to cache if we got new data
+	if !skipCache {
+		if err := c.writeCommentsToCache(comments); err != nil {
+			c.logger.Printf("Failed to write comments to cache: %v", err)
+		}
+	}
+
 	return comments, nil
 }
 
+// loadCommentsFromCache loads comments from a cache file
+func (c *Client) loadCommentsFromCache() ([]CommentWithStory, error) {
+	// Create cache directory if it doesn't exist
+	if err := os.MkdirAll("./cache", 0755); err != nil {
+		return nil, fmt.Errorf("failed to create cache directory: %v", err)
+	}
+
+	cacheFile := "./cache/newcomments.json"
+	data, err := os.ReadFile(cacheFile)
+	if err != nil {
+		return nil, err
+	}
+
+	var comments []CommentWithStory
+	if err := json.Unmarshal(data, &comments); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal cache file: %v", err)
+	}
+
+	return comments, nil
+}
+
+// writeCommentsToCache writes comments to a cache file
+func (c *Client) writeCommentsToCache(comments []CommentWithStory) error {
+	// Create cache directory if it doesn't exist
+	if err := os.MkdirAll("./cache", 0755); err != nil {
+		return fmt.Errorf("failed to create cache directory: %v", err)
+	}
+
+	cacheFile := "./cache/newcomments.json"
+	data, err := json.Marshal(comments)
+	if err != nil {
+		return fmt.Errorf("failed to marshal comments: %v", err)
+	}
+
+	if err := os.WriteFile(cacheFile, data, 0644); err != nil {
+		return fmt.Errorf("failed to write cache file: %v", err)
+	}
+
+	return nil
+}
+
 // GetRootParent recursively fetches parent items until it finds the root story
-func (c *Client) GetRootParent(item *Item) (*Item, error) {
+func (c *Client) GetRootParent(item *types.Item) (*types.Item, error) {
 	if item == nil {
 		return nil, fmt.Errorf("nil item")
 	}
@@ -860,14 +945,38 @@ func (c *Client) GetRootParent(item *Item) (*Item, error) {
 		return item, nil
 	}
 
-	// Fetch the parent
-	parent, err := c.GetItem(item.Parent)
-	if err != nil {
-		return nil, err
+	// Add a safety check for potential infinite recursion
+	visited := make(map[int]bool)
+	current := item
+	depth := 0
+	maxDepth := 100 // Maximum depth to prevent infinite recursion
+
+	for current != nil && current.Parent > 0 && depth < maxDepth {
+		if visited[current.ID] {
+			return nil, fmt.Errorf("circular reference detected at item %d", current.ID)
+		}
+		visited[current.ID] = true
+
+		// Fetch the parent
+		parent, err := c.GetItem(current.Parent)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch parent %d: %v", current.Parent, err)
+		}
+
+		// If parent is a story or has no parent, we've found the root
+		if parent.Type == "story" || parent.Parent == 0 {
+			return parent, nil
+		}
+
+		current = parent
+		depth++
 	}
 
-	// Recursively get the root parent
-	return c.GetRootParent(parent)
+	if depth >= maxDepth {
+		return nil, fmt.Errorf("max depth exceeded while finding root parent for item %d", item.ID)
+	}
+
+	return current, nil
 }
 
 // doRequest performs an HTTP request and unmarshals the response
@@ -959,7 +1068,7 @@ func (c *Client) backgroundJobs() {
 			}
 
 			// Fetch new comments
-			_, err = c.GetNewComments(30)
+			_, err = c.GetNewComments(30, true)
 			if err != nil {
 				c.logger.Printf("Error fetching new comments: %v", err)
 			}
