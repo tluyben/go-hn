@@ -36,13 +36,13 @@
                 <a href="/" class="logo">Y</a>
                 <a href="/" class="site-name">Hacker News</a>
                 <div id="mobile-menu" class="nav-links">
-                    <a href="/newstories">new</a>
-                    <a href="/paststories">past</a>
-                    <a href="/newcomments">comments</a>
-                    <a href="/askstories">ask</a>
-                    <a href="/showstories">show</a>
-                    <a href="/jobstories">jobs</a>
-                    <a href="/submit" class="submit-link">submit</a>
+                    <a href="/newstories" {{ if eq .Section "newstories" }}class="active"{{ end }}>new</a>
+                    <a href="/paststories" {{ if eq .Section "paststories" }}class="active"{{ end }}>past</a>
+                    <a href="/newcomments" {{ if eq .Section "newcomments" }}class="active"{{ end }}>comments</a>
+                    <a href="/askstories" {{ if eq .Section "askstories" }}class="active"{{ end }}>ask</a>
+                    <a href="/showstories" {{ if eq .Section "showstories" }}class="active"{{ end }}>show</a>
+                    <a href="/jobstories" {{ if eq .Section "jobstories" }}class="active"{{ end }}>jobs</a>
+                    <a href="/submit" class="submit-link {{ if eq .Section "submit" }}active{{ end }}">submit</a>
                 </div>
             </div>
             <div class="nav-right">
