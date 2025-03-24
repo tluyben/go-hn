@@ -64,6 +64,7 @@ type Client struct {
 	loggedIn   bool
 	username   string
 	csrf       string
+	cache      map[int]*Item
 }
 
 // NewClient creates a new Hacker News client
@@ -82,12 +83,18 @@ func NewClient() (*Client, error) {
 		webBase:    "https://news.ycombinator.com",
 		searchBase: "https://hn.algolia.com/api/v1",
 		loggedIn:   false,
+		cache:      make(map[int]*Item),
 	}, nil
 }
 
-// GetItem fetches an item by ID
+// GetItem fetches an item by ID, using cache if available
 func (c *Client) GetItem(id int) (*Item, error) {
-	// check the Bleve engine first for this id ;
+	// Check cache first
+	if item, ok := c.cache[id]; ok {
+		return item, nil
+	}
+
+	// If not in cache, fetch from HN API
 	url := fmt.Sprintf("%s/item/%d.json", c.apiBase, id)
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -99,6 +106,9 @@ func (c *Client) GetItem(id int) (*Item, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// Cache the item
+	c.cache[id] = &item
 
 	return &item, nil
 }
