@@ -91,6 +91,10 @@ func init() {
 	if err != nil {
 		log.Fatalf("Failed to initialize HN client: %v", err)
 	}
+
+	// Start background jobs for fetching stories and comments
+	client.StartBackgroundJobs()
+	log.Println("Background jobs started successfully")
 }
 
 // Get item from search index or fetch from HN API

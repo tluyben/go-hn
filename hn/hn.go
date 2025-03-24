@@ -70,6 +70,9 @@ type Client struct {
 	cacheMu    sync.RWMutex // Mutex to protect cache access
 	logger     *log.Logger
 	semaphore  chan struct{} // Semaphore for limiting concurrent requests
+	stopChan   chan struct{} // Channel to stop background jobs
+	storyTypes []string      // List of story types to rotate through
+	currentIdx int           // Current index in storyTypes
 }
 
 // NewClient creates a new Hacker News client
@@ -106,6 +109,9 @@ func NewClient() (*Client, error) {
 		cache:      make(map[int]*Item),
 		logger:     logger,
 		semaphore:  make(chan struct{}, 3), // Limit to 3 concurrent requests
+		stopChan:   make(chan struct{}),
+		storyTypes: []string{"topstories", "newstories", "beststories", "askstories", "showstories", "jobstories"},
+		currentIdx: 0,
 	}, nil
 }
 
@@ -848,4 +854,43 @@ func (c *Client) doRequest(req *http.Request, v interface{}) error {
 	}
 
 	return nil
+}
+
+// StartBackgroundJobs starts the background jobs for fetching stories and comments
+func (c *Client) StartBackgroundJobs() {
+	go c.backgroundJobs()
+}
+
+// StopBackgroundJobs stops the background jobs
+func (c *Client) StopBackgroundJobs() {
+	close(c.stopChan)
+}
+
+// backgroundJobs runs the background jobs for fetching stories and comments
+func (c *Client) backgroundJobs() {
+	ticker := time.NewTicker(2 * time.Minute)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-c.stopChan:
+			return
+		case <-ticker.C:
+			// Get the current story type
+			storyType := c.storyTypes[c.currentIdx]
+			c.currentIdx = (c.currentIdx + 1) % len(c.storyTypes)
+
+			// Fetch stories for the current type
+			_, err := c.GetStoriesPage(storyType, 1, 30)
+			if err != nil {
+				c.logger.Printf("Error fetching %s: %v", storyType, err)
+			}
+
+			// Fetch new comments
+			_, err = c.GetNewComments(30)
+			if err != nil {
+				c.logger.Printf("Error fetching new comments: %v", err)
+			}
+		}
+	}
 }
