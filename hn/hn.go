@@ -897,3 +897,8 @@ func (c *Client) backgroundJobs() {
 		}
 	}
 }
+
+// IsLoggedIn returns whether the client is currently logged in
+func (c *Client) IsLoggedIn() bool {
+	return c.loggedIn
+}

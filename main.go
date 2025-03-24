@@ -543,8 +543,27 @@ func main() {
 			return
 		}
 
+		// Fetch all comments recursively
+		comments := make([]*hn.Item, 0)
+		if item.Kids != nil && len(item.Kids) > 0 {
+			for _, kidID := range item.Kids {
+				comment, err := getItem(kidID)
+				if err != nil {
+					log.Printf("Error fetching comment %d: %v", kidID, err)
+					continue
+				}
+				if comment != nil && !comment.Dead && !comment.Deleted {
+					comments = append(comments, comment)
+					// Recursively fetch child comments
+					fetchChildComments(comment, &comments)
+				}
+			}
+		}
+
 		data := createTemplateData(item.Title, "comments-content", r)
 		data["Item"] = item
+		data["Comments"] = comments
+		data["LoggedIn"] = client.IsLoggedIn()
 
 		tmpl.ExecuteTemplate(w, "base", data)
 	})
@@ -699,9 +718,91 @@ func main() {
 		}
 	})
 
+	// Comment reply handler
+	http.HandleFunc("/reply/", func(w http.ResponseWriter, r *http.Request) {
+		if !client.IsLoggedIn() {
+			http.Error(w, "Must be logged in to reply", http.StatusUnauthorized)
+			return
+		}
+
+		id, err := strconv.Atoi(r.URL.Path[7:])
+		if err != nil {
+			http.Error(w, "Invalid comment ID", http.StatusBadRequest)
+			return
+		}
+
+		// Get the parent comment
+		parent, err := getItem(id)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		data := map[string]interface{}{
+			"ParentID": id,
+			"Parent":   parent,
+		}
+
+		tmpl.ExecuteTemplate(w, "reply-form", data)
+	})
+
+	// Comment submit handler
+	http.HandleFunc("/comment", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		if !client.IsLoggedIn() {
+			http.Error(w, "Must be logged in to comment", http.StatusUnauthorized)
+			return
+		}
+
+		parentID, err := strconv.Atoi(r.FormValue("parent_id"))
+		if err != nil {
+			http.Error(w, "Invalid parent ID", http.StatusBadRequest)
+			return
+		}
+
+		text := r.FormValue("text")
+		if text == "" {
+			http.Error(w, "Comment text cannot be empty", http.StatusBadRequest)
+			return
+		}
+
+		err = client.Comment(parentID, text)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		// Redirect to the item page
+		http.Redirect(w, r, fmt.Sprintf("/item/%d", parentID), http.StatusSeeOther)
+	})
+
 	// Start server
 	log.Println("Server starting on http://localhost:8080")
 	if err := server.ListenAndServe(); err != nil {
 		log.Fatalf("Server error: %v", err)
+	}
+}
+
+// Helper function to recursively fetch child comments
+func fetchChildComments(parent *hn.Item, allComments *[]*hn.Item) {
+	if parent.Kids == nil || len(parent.Kids) == 0 {
+		return
+	}
+
+	for _, kidID := range parent.Kids {
+		comment, err := getItem(kidID)
+		if err != nil {
+			log.Printf("Error fetching child comment %d: %v", kidID, err)
+			continue
+		}
+		if comment != nil && !comment.Dead && !comment.Deleted {
+			*allComments = append(*allComments, comment)
+			// Recursively fetch this comment's children
+			fetchChildComments(comment, allComments)
+		}
 	}
 }

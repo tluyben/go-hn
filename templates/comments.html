@@ -3,12 +3,21 @@
     <!-- Story/Item Details -->
     <article class="item-details">
         <div class="item-header">
+            <div class="vote-container">
+                <button 
+                    class="vote-button {{ if hasVoted .Item.VoteDir 1 }}voted{{ end }}"
+                    hx-post="/vote"
+                    hx-vals='{"id": {{.Item.ID}}, "type": "up"}'
+                    hx-swap="outerHTML"
+                    {{ if not .LoggedIn }}disabled{{ end }}
+                >
+                    ▲
+                </button>
+            </div>
             <h1 class="item-title">
                 {{ if .Item.URL }}
-                <a href="{{.Item.URL}}" target="_blank">{{.Item.Title}}</a>
-                {{ if .Item.Domain }}
-                <span class="item-domain">({{.Item.Domain}})</span>
-                {{ end }}
+                <a href="{{.Item.URL}}" target="_blank" rel="noopener">{{.Item.Title}}</a>
+                <span class="item-domain">({{getDomain .Item.URL}})</span>
                 {{ else }}
                 {{.Item.Title}}
                 {{ end }}
@@ -17,15 +26,15 @@
         
         {{ if .Item.Text }}
         <div class="item-text">
-            {{.Item.Text}}
+            {{.Item.Text | unescape}}
         </div>
         {{ end }}
         
         <div class="item-meta">
             <span class="item-score">{{.Item.Score}} points</span>
             <span class="item-author">by <a href="/user/{{.Item.By}}">{{.Item.By}}</a></span>
-            <span class="item-time">{{.Item.TimeAgo}}</span>
-            {{ if $.LoggedIn }}
+            <span class="item-time">{{timeAgo .Item.Time}}</span>
+            {{ if .LoggedIn }}
             <span class="item-actions">
                 <span>|</span>
                 <a href="#" hx-post="/flag" hx-vals='{"id": {{.Item.ID}}}' class="action-link">flag</a>
@@ -37,7 +46,7 @@
     </article>
 
     <!-- Comment Form -->
-    {{ if $.LoggedIn }}
+    {{ if .LoggedIn }}
     <div class="comment-form-container">
         <form class="comment-form" hx-post="/comment" hx-target="#comments-container">
             <input type="hidden" name="parent_id" value="{{.Item.ID}}">
@@ -49,71 +58,323 @@
 
     <!-- Comments Section -->
     <div id="comments-container" class="comments-container">
-        {{ template "comments_tree" .Comments }}
+        {{ range .Comments }}
+        <div class="comment" id="comment-{{.ID}}">
+            <div class="comment-meta">
+                <button 
+                    class="vote-button {{ if hasVoted .VoteDir 1 }}voted{{ end }}"
+                    hx-post="/vote"
+                    hx-vals='{"id": {{.ID}}, "type": "up"}'
+                    hx-swap="outerHTML"
+                    {{ if not $.LoggedIn }}disabled{{ end }}
+                >
+                    ▲
+                </button>
+                <span class="comment-author">
+                    <a href="/user/{{.By}}">{{.By}}</a>
+                </span>
+                <span class="comment-time">{{timeAgo .Time}}</span>
+                {{ if .Parent }}
+                <a href="#comment-{{.Parent}}" class="comment-parent">parent</a>
+                {{ end }}
+                {{ if $.LoggedIn }}
+                <span class="comment-actions">
+                    <span>|</span>
+                    <a href="#" 
+                       hx-get="/reply/{{.ID}}"
+                       hx-target="#reply-{{.ID}}"
+                       class="action-link">reply</a>
+                    <span>|</span>
+                    <a href="#" 
+                       hx-post="/flag"
+                       hx-vals='{"id": {{.ID}}}'
+                       class="action-link">flag</a>
+                </span>
+                {{ end }}
+            </div>
+            
+            <div class="comment-text">
+                {{.Text | unescape}}
+            </div>
+            
+            <div id="reply-{{.ID}}" class="reply-container"></div>
+        </div>
+        {{ end }}
     </div>
 </div>
+
+<style>
+.item-container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 1rem;
+}
+
+.item-details {
+    margin-bottom: 2rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.item-header {
+    display: flex;
+    gap: 0.5rem;
+    align-items: flex-start;
+    margin-bottom: 1rem;
+}
+
+.vote-container {
+    flex-shrink: 0;
+}
+
+.item-title {
+    margin: 0;
+    font-size: 1.25rem;
+    font-weight: 500;
+    line-height: 1.4;
+}
+
+.item-title a {
+    color: var(--text-primary);
+    text-decoration: none;
+}
+
+.item-title a:hover {
+    text-decoration: underline;
+}
+
+.item-domain {
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    margin-left: 0.5rem;
+}
+
+.item-text {
+    color: var(--text-primary);
+    font-size: 0.95rem;
+    line-height: 1.5;
+    margin: 1rem 0;
+    white-space: pre-wrap;
+}
+
+.item-meta {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+.item-meta a {
+    color: inherit;
+    text-decoration: none;
+}
+
+.item-meta a:hover {
+    text-decoration: underline;
+}
+
+.comment-form-container {
+    margin: 1rem 0 2rem;
+}
+
+.comment-form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    max-width: 600px;
+}
+
+.comment-form textarea {
+    width: 100%;
+    padding: 0.5rem;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    font-family: inherit;
+    resize: vertical;
+}
+
+.submit-button {
+    align-self: flex-start;
+    padding: 0.5rem 1rem;
+    background: var(--accent-color);
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.9rem;
+}
+
+.submit-button:hover {
+    opacity: 0.9;
+}
+
+.comments-container {
+    margin-top: 1rem;
+}
+
+.comment {
+    margin: 1rem 0;
+    padding-left: 1.5rem;
+    border-left: 1px solid var(--border-color);
+}
+
+.comment-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    margin-bottom: 0.25rem;
+}
+
+.comment-meta a {
+    color: inherit;
+    text-decoration: none;
+}
+
+.comment-meta a:hover {
+    text-decoration: underline;
+}
+
+.comment-author a {
+    color: var(--text-primary);
+    font-weight: 500;
+}
+
+.vote-button {
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 0.7rem;
+    padding: 0.25rem;
+    transition: color 0.2s;
+}
+
+.vote-button:hover:not(:disabled) {
+    color: var(--accent-color);
+}
+
+.vote-button.voted {
+    color: var(--accent-color);
+}
+
+.vote-button:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+
+.comment-text {
+    color: var(--text-primary);
+    font-size: 0.95rem;
+    line-height: 1.5;
+    margin-top: 0.25rem;
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+}
+
+.action-link {
+    color: var(--text-secondary);
+    text-decoration: none;
+}
+
+.action-link:hover {
+    text-decoration: underline;
+}
+
+.reply-container {
+    margin-top: 1rem;
+}
+
+@media (max-width: 768px) {
+    .item-container {
+        padding: 0.5rem;
+    }
+    
+    .comment {
+        padding-left: 1rem;
+    }
+    
+    .item-title {
+        font-size: 1.1rem;
+    }
+}
+</style>
 {{ end }}
 
-{{ define "comments_tree" }}
-{{ range . }}
-<div class="comment comment-level-{{.Level}}" id="comment-{{.ID}}">
-    <div class="comment-meta">
-        <button 
-            class="vote-button {{ if hasVoted .VoteDir 1 }}voted{{ end }}"
-            hx-post="/vote"
-            hx-vals='{"id": {{.ID}}, "type": "up"}'
-            hx-swap="outerHTML"
-            {{ if not $.LoggedIn }}disabled{{ end }}
-        >
-            ▲
-        </button>
-        <span class="comment-author">
-            <a href="/user/{{.By}}">{{.By}}</a>
-        </span>
-        <span class="comment-time">{{.TimeAgo}}</span>
-        {{ if .Parent }}
-        <a href="#comment-{{.Parent}}" class="comment-parent">parent</a>
-        {{ end }}
-        {{ if $.LoggedIn }}
-        <span class="comment-actions">
-            <span>|</span>
-            <a href="#" 
-               hx-get="/reply/{{.ID}}"
-               hx-target="#reply-{{.ID}}"
-               class="action-link">reply</a>
-            {{ if .CanDownvote }}
-            <span>|</span>
-            <a href="#"
-               hx-post="/vote"
-               hx-vals='{"id": {{.ID}}, "type": "down"}'
-               class="action-link">downvote</a>
-            {{ end }}
-            <span>|</span>
-            <a href="#" 
-               hx-post="/flag"
-               hx-vals='{"id": {{.ID}}}'
-               class="action-link">flag</a>
-        </span>
-        {{ end }}
+{{ define "reply-form" }}
+<div class="reply-form-container">
+    <div class="parent-comment">
+        <div class="parent-meta">
+            <span class="parent-author">{{.Parent.By}}</span>
+            <span class="parent-time">{{timeAgo .Parent.Time}}</span>
+        </div>
+        <div class="parent-text">{{.Parent.Text | unescape}}</div>
     </div>
-    
-    <div class="comment-text">
-        {{.Text}}
-    </div>
-    
-    <div id="reply-{{.ID}}" class="reply-container"></div>
-    
-    {{ if .Collapsed }}
-    <div class="comment-toggle">
-        <a href="#" 
-           hx-get="/comments/{{.ID}}"
-           hx-target="#comment-{{.ID}}"
-           hx-swap="outerHTML"
-        >
-            [{{.ChildCount}} more]
-        </a>
-    </div>
-    {{ end }}
+    <form class="comment-form" hx-post="/comment" hx-target="#comments-container">
+        <input type="hidden" name="parent_id" value="{{.ParentID}}">
+        <textarea name="text" rows="6" placeholder="Reply to this comment..." required></textarea>
+        <div class="form-actions">
+            <button type="submit" class="submit-button">reply</button>
+            <button type="button" class="cancel-button" onclick="this.closest('.reply-container').innerHTML = ''">cancel</button>
+        </div>
+    </form>
 </div>
-{{ end }}
+
+<style>
+.reply-form-container {
+    margin-top: 1rem;
+    padding: 1rem;
+    background: var(--bg-secondary);
+    border-radius: 4px;
+}
+
+.parent-comment {
+    margin-bottom: 1rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.parent-meta {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    margin-bottom: 0.5rem;
+}
+
+.parent-author {
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.parent-time {
+    margin-left: 0.5rem;
+}
+
+.parent-text {
+    font-size: 0.95rem;
+    line-height: 1.5;
+    color: var(--text-primary);
+    opacity: 0.8;
+}
+
+.form-actions {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+}
+
+.cancel-button {
+    padding: 0.5rem 1rem;
+    background: transparent;
+    color: var(--text-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.9rem;
+}
+
+.cancel-button:hover {
+    background: var(--bg-secondary);
+}
+</style>
 {{ end }} 
