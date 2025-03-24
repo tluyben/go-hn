@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -601,7 +602,7 @@ type result struct {
 }
 
 // GetStoriesPage fetches a specific page of stories
-func (c *Client) GetStoriesPage(storyType string, page, perPage int) ([]Item, error) {
+func (c *Client) GetStoriesPage(storyType string, page, perPage int, skipCache bool) ([]Item, error) {
 	if page < 1 {
 		page = 1
 	}
@@ -618,14 +619,33 @@ func (c *Client) GetStoriesPage(storyType string, page, perPage int) ([]Item, er
 		storyType = "beststories"
 	}
 
-	// Get the full list of story IDs
-	url := fmt.Sprintf("%s/%s.json", c.apiBase, storyType)
-	req, err := http.NewRequest("GET", url, nil)
+	var ids []int
+	var err error
+	var req *http.Request
+	var url string
+	var pageIDs []int
+	var results chan result
+	var errors chan error
+	var itemMap map[int]*Item
+	var timeout <-chan time.Time
+	var items []Item
+
+	// Try to load from cache first if not skipping cache
+	if !skipCache {
+		ids, err = c.loadFromCache(storyType)
+		if err == nil && len(ids) > 0 {
+			// Cache hit, proceed with pagination
+			goto paginate
+		}
+	}
+
+	// If cache miss or skipCache is true, fetch from API
+	url = fmt.Sprintf("%s/%s.json", c.apiBase, storyType)
+	req, err = http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %v", err)
 	}
 
-	var ids []int
 	err = c.doRequest(req, &ids)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch story IDs: %v", err)
@@ -635,6 +655,14 @@ func (c *Client) GetStoriesPage(storyType string, page, perPage int) ([]Item, er
 		return nil, fmt.Errorf("no stories found for type: %s", storyType)
 	}
 
+	// Write to cache if we got new data
+	if !skipCache {
+		if err := c.writeToCache(storyType, ids); err != nil {
+			c.logger.Printf("Failed to write to cache: %v", err)
+		}
+	}
+
+paginate:
 	// Adjust end index if it exceeds the number of stories
 	if end > len(ids) {
 		end = len(ids)
@@ -644,13 +672,13 @@ func (c *Client) GetStoriesPage(storyType string, page, perPage int) ([]Item, er
 	}
 
 	// Get the IDs for this page
-	pageIDs := ids[start:end]
+	pageIDs = ids[start:end]
 
 	fmt.Println("pageIDs", pageIDs, start, end, len(ids))
 
 	// Create a channel for results
-	results := make(chan result, len(pageIDs))
-	errors := make(chan error, len(pageIDs))
+	results = make(chan result, len(pageIDs))
+	errors = make(chan error, len(pageIDs))
 
 	// Fetch items with controlled concurrency
 	for _, id := range pageIDs {
@@ -672,8 +700,8 @@ func (c *Client) GetStoriesPage(storyType string, page, perPage int) ([]Item, er
 	}
 
 	// Collect results with timeout
-	itemMap := make(map[int]*Item)
-	timeout := time.After(30 * time.Second)
+	itemMap = make(map[int]*Item)
+	timeout = time.After(30 * time.Second)
 	for i := 0; i < len(pageIDs); i++ {
 		select {
 		case res := <-results:
@@ -696,7 +724,7 @@ func (c *Client) GetStoriesPage(storyType string, page, perPage int) ([]Item, er
 	}
 
 	// Reconstruct the items in the original order with proper ranking
-	items := make([]Item, 0, len(pageIDs))
+	items = make([]Item, 0, len(pageIDs))
 	for i, id := range pageIDs {
 		if item, ok := itemMap[id]; ok {
 			item.Rank = start + i + 1
@@ -705,6 +733,47 @@ func (c *Client) GetStoriesPage(storyType string, page, perPage int) ([]Item, er
 	}
 
 	return items, nil
+}
+
+// loadFromCache loads story IDs from a cache file
+func (c *Client) loadFromCache(storyType string) ([]int, error) {
+	// Create cache directory if it doesn't exist
+	if err := os.MkdirAll("./cache", 0755); err != nil {
+		return nil, fmt.Errorf("failed to create cache directory: %v", err)
+	}
+
+	cacheFile := fmt.Sprintf("./cache/%s.json", storyType)
+	data, err := os.ReadFile(cacheFile)
+	if err != nil {
+		return nil, err
+	}
+
+	var ids []int
+	if err := json.Unmarshal(data, &ids); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal cache file: %v", err)
+	}
+
+	return ids, nil
+}
+
+// writeToCache writes story IDs to a cache file
+func (c *Client) writeToCache(storyType string, ids []int) error {
+	// Create cache directory if it doesn't exist
+	if err := os.MkdirAll("./cache", 0755); err != nil {
+		return fmt.Errorf("failed to create cache directory: %v", err)
+	}
+
+	cacheFile := fmt.Sprintf("./cache/%s.json", storyType)
+	data, err := json.Marshal(ids)
+	if err != nil {
+		return fmt.Errorf("failed to marshal story IDs: %v", err)
+	}
+
+	if err := os.WriteFile(cacheFile, data, 0644); err != nil {
+		return fmt.Errorf("failed to write cache file: %v", err)
+	}
+
+	return nil
 }
 
 // CommentWithStory represents a comment with its parent story information
@@ -883,8 +952,8 @@ func (c *Client) backgroundJobs() {
 			storyType := c.storyTypes[c.currentIdx]
 			c.currentIdx = (c.currentIdx + 1) % len(c.storyTypes)
 
-			// Fetch stories for the current type
-			_, err := c.GetStoriesPage(storyType, 1, 30)
+			// Fetch stories for the current type with skipCache=true
+			_, err := c.GetStoriesPage(storyType, 1, 30, true)
 			if err != nil {
 				c.logger.Printf("Error fetching %s: %v", storyType, err)
 			}

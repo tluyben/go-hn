@@ -504,7 +504,7 @@ func main() {
 		log.Printf("Fetching %s (page: %d, perPage: %d)", section, page, perPage)
 
 		// Get stories for this page
-		stories, err := client.GetStoriesPage(section, page, perPage)
+		stories, err := client.GetStoriesPage(section, page, perPage, false)
 		if err != nil {
 			log.Printf("Error fetching stories: %v", err)
 			http.Error(w, "Failed to load stories", http.StatusInternalServerError)
