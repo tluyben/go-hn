@@ -1,130 +1,4 @@
-{{ define "comments-content" }}
-<div class="item-container">
-    <!-- Story/Item Details -->
-    <article class="item-details">
-        <div class="item-header">
-            <div class="vote-container">
-                <button 
-                    class="vote-button {{ if hasVoted .Item.VoteDir 1 }}voted{{ end }}"
-                    hx-post="/vote"
-                    hx-vals='{"id": {{.Item.ID}}, "type": "up"}'
-                    hx-swap="outerHTML"
-                    {{ if not .LoggedIn }}disabled{{ end }}
-                >
-                    ▲
-                </button>
-            </div>
-            <h1 class="item-title">
-                {{ if .Item.URL }}
-                <a href="{{.Item.URL}}" target="_blank" rel="noopener">{{.Item.Title}}</a>
-                <span class="item-domain">({{getDomain .Item.URL}})</span>
-                {{ else }}
-                {{.Item.Title}}
-                {{ end }}
-            </h1>
-        </div>
-        
-        {{ if .Item.Text }}
-        <div class="item-text">
-            {{.Item.Text | unescape}}
-        </div>
-        {{ end }}
-        
-        <div class="item-meta">
-            <span class="item-score">{{.Item.Score}} points</span>
-            <span class="item-author">by <a href="/user/{{.Item.By}}">{{.Item.By}}</a></span>
-            <span class="item-time">{{timeAgo .Item.Time}}</span>
-            {{ if .LoggedIn }}
-            <span class="item-actions">
-                <span>|</span>
-                <a href="#" hx-post="/flag" hx-vals='{"id": {{.Item.ID}}}' class="action-link">flag</a>
-                <span>|</span>
-                <a href="#" hx-post="/hide" hx-vals='{"id": {{.Item.ID}}}' class="action-link">hide</a>
-            </span>
-            {{ end }}
-        </div>
-    </article>
-
-    <!-- Comment Form -->
-    {{ if .LoggedIn }}
-    <div class="comment-form-container">
-        <form class="comment-form" hx-post="/comment" hx-target="#comments-container">
-            <input type="hidden" name="parent_id" value="{{.Item.ID}}">
-            <textarea name="text" rows="6" placeholder="Add your comment..." required></textarea>
-            <button type="submit" class="submit-button">add comment</button>
-        </form>
-    </div>
-    {{ end }}
-
-    <!-- Comments Section -->
-    <div id="comments-container" class="comments-container">
-        {{ range .Comments }}
-            {{ if eq .Parent $.Item.ID }}
-            <div class="comment" id="comment-{{.ID}}">
-                <div class="comment-meta">
-                    <div class="vote-buttons">
-                        <button 
-                            class="vote-button {{ if hasVoted .VoteDir 1 }}voted{{ end }}"
-                            hx-post="/vote"
-                            hx-vals='{"id": {{.ID}}, "type": "up"}'
-                            hx-swap="outerHTML"
-                            {{ if not $.LoggedIn }}disabled{{ end }}
-                        >
-                            ▲
-                        </button>
-                        <button 
-                            class="vote-button {{ if hasVoted .VoteDir -1 }}voted{{ end }}"
-                            hx-post="/vote"
-                            hx-vals='{"id": {{.ID}}, "type": "down"}'
-                            hx-swap="outerHTML"
-                            {{ if not $.LoggedIn }}disabled{{ end }}
-                        >
-                            ▼
-                        </button>
-                    </div>
-                    <span class="comment-author">
-                        <a href="/user/{{.By}}">{{.By}}</a>
-                    </span>
-                    <span class="comment-time">{{timeAgo .Time}}</span>
-                    {{ if .Parent }}
-                    <a href="#comment-{{.Parent}}" class="comment-parent">parent</a>
-                    {{ end }}
-                    {{ if $.LoggedIn }}
-                    <span class="comment-actions">
-                        <span>|</span>
-                        <a href="#" 
-                           hx-get="/reply/{{.ID}}"
-                           hx-target="#reply-{{.ID}}"
-                           class="action-link">reply</a>
-                        <span>|</span>
-                        <a href="#" 
-                           hx-post="/flag"
-                           hx-vals='{"id": {{.ID}}}'
-                           class="action-link">flag</a>
-                    </span>
-                    {{ end }}
-                </div>
-                
-                <div class="comment-text">
-                    {{.Text | unescape}}
-                </div>
-                
-                <div id="reply-{{.ID}}" class="reply-container"></div>
-
-                <!-- Child comments -->
-                <div class="comment-children">
-                    {{ range $.Comments }}
-                        {{ if eq .Parent $.ID }}
-                            {{ template "comment" (dict "Comment" . "Comments" $.Comments "LoggedIn" $.LoggedIn) }}
-                        {{ end }}
-                    {{ end }}
-                </div>
-            </div>
-            {{ end }}
-        {{ end }}
-    </div>
-</div>
-
+{{ define "styles" }}
 <style>
 .item-container {
     max-width: 1200px;
@@ -321,6 +195,61 @@
     padding-left: 1rem;
 }
 
+.reply-form-container {
+    margin-top: 1rem;
+    padding: 1rem;
+    background: var(--bg-secondary);
+    border-radius: 4px;
+}
+
+.parent-comment {
+    margin-bottom: 1rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.parent-meta {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    margin-bottom: 0.5rem;
+}
+
+.parent-author {
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.parent-time {
+    margin-left: 0.5rem;
+}
+
+.parent-text {
+    font-size: 0.95rem;
+    line-height: 1.5;
+    color: var(--text-primary);
+    opacity: 0.8;
+}
+
+.form-actions {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+}
+
+.cancel-button {
+    padding: 0.5rem 1rem;
+    background: transparent;
+    color: var(--text-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.9rem;
+}
+
+.cancel-button:hover {
+    background: var(--bg-secondary);
+}
+
 @media (max-width: 768px) {
     .item-container {
         padding: 0.5rem;
@@ -340,6 +269,77 @@
     }
 }
 </style>
+{{ end }}
+
+{{ define "comments-content" }}
+<div class="item-container">
+    <!-- Story/Item Details -->
+    <article class="item-details">
+        <div class="item-header">
+            <div class="vote-container">
+                <button 
+                    class="vote-button {{ if hasVoted .Item.VoteDir 1 }}voted{{ end }}"
+                    hx-post="/vote"
+                    hx-vals='{"id": {{.Item.ID}}, "type": "up"}'
+                    hx-swap="outerHTML"
+                    {{ if not .LoggedIn }}disabled{{ end }}
+                >
+                    ▲
+                </button>
+            </div>
+            <h1 class="item-title">
+                {{ if .Item.URL }}
+                <a href="{{.Item.URL}}" target="_blank" rel="noopener">{{.Item.Title}}</a>
+                <span class="item-domain">({{getDomain .Item.URL}})</span>
+                {{ else }}
+                {{.Item.Title}}
+                {{ end }}
+            </h1>
+        </div>
+        
+        {{ if .Item.Text }}
+        <div class="item-text">
+            {{.Item.Text | unescape}}
+        </div>
+        {{ end }}
+        
+        <div class="item-meta">
+            <span class="item-score">{{.Item.Score}} points</span>
+            <span class="item-author">by <a href="/user/{{.Item.By}}">{{.Item.By}}</a></span>
+            <span class="item-time">{{timeAgo .Item.Time}}</span>
+            {{ if .LoggedIn }}
+            <span class="item-actions">
+                <span>|</span>
+                <a href="#" hx-post="/flag" hx-vals='{"id": {{.Item.ID}}}' class="action-link">flag</a>
+                <span>|</span>
+                <a href="#" hx-post="/hide" hx-vals='{"id": {{.Item.ID}}}' class="action-link">hide</a>
+            </span>
+            {{ end }}
+        </div>
+    </article>
+
+    <!-- Comment Form -->
+    {{ if .LoggedIn }}
+    <div class="comment-form-container">
+        <form class="comment-form" hx-post="/comment" hx-target="#comments-container">
+            <input type="hidden" name="parent_id" value="{{.Item.ID}}">
+            <textarea name="text" rows="6" placeholder="Add your comment..." required></textarea>
+            <button type="submit" class="submit-button">add comment</button>
+        </form>
+    </div>
+    {{ end }}
+
+    <!-- Comments Section -->
+    <div id="comments-container" class="comments-container">
+        {{ range .Comments }}
+            {{ if eq .Parent $.Item.ID }}
+                {{ template "comment" (dict "Comment" . "Comments" $.Comments "LoggedIn" $.LoggedIn) }}
+            {{ end }}
+        {{ end }}
+    </div>
+</div>
+{{ template "styles" . }}
+{{ end }}
 
 {{ define "comment" }}
 <div class="comment" id="comment-{{.Comment.ID}}">
@@ -422,61 +422,4 @@
         </div>
     </form>
 </div>
-
-<style>
-.reply-form-container {
-    margin-top: 1rem;
-    padding: 1rem;
-    background: var(--bg-secondary);
-    border-radius: 4px;
-}
-
-.parent-comment {
-    margin-bottom: 1rem;
-    padding-bottom: 1rem;
-    border-bottom: 1px solid var(--border-color);
-}
-
-.parent-meta {
-    font-size: 0.85rem;
-    color: var(--text-secondary);
-    margin-bottom: 0.5rem;
-}
-
-.parent-author {
-    font-weight: 500;
-    color: var(--text-primary);
-}
-
-.parent-time {
-    margin-left: 0.5rem;
-}
-
-.parent-text {
-    font-size: 0.95rem;
-    line-height: 1.5;
-    color: var(--text-primary);
-    opacity: 0.8;
-}
-
-.form-actions {
-    display: flex;
-    gap: 0.5rem;
-    margin-top: 0.5rem;
-}
-
-.cancel-button {
-    padding: 0.5rem 1rem;
-    background: transparent;
-    color: var(--text-secondary);
-    border: 1px solid var(--border-color);
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 0.9rem;
-}
-
-.cancel-button:hover {
-    background: var(--bg-secondary);
-}
-</style>
 {{ end }} 
