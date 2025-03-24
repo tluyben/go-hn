@@ -194,7 +194,12 @@ func main() {
 		var templateErr error
 		if r.Header.Get("HX-Request") == "true" {
 			log.Printf("HTMX request detected, executing content template")
-			templateErr = tmpl.ExecuteTemplate(w, "content", data)
+			// For pagination, render just the story items
+			if r.URL.Query().Get("htmx") == "true" {
+				templateErr = tmpl.ExecuteTemplate(w, "story-items", data)
+			} else {
+				templateErr = tmpl.ExecuteTemplate(w, "stories-content", data)
+			}
 		} else {
 			log.Printf("Regular request, executing base template")
 			templateErr = tmpl.ExecuteTemplate(w, "base", data)
