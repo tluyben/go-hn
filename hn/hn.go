@@ -87,6 +87,7 @@ func NewClient() (*Client, error) {
 
 // GetItem fetches an item by ID
 func (c *Client) GetItem(id int) (*Item, error) {
+	// check the Bleve engine first for this id ;
 	url := fmt.Sprintf("%s/item/%d.json", c.apiBase, id)
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -136,8 +137,8 @@ func (c *Client) GetMaxItem() (int, error) {
 	return maxID, nil
 }
 
-// getStories is a helper function to fetch stories by type
-func (c *Client) getStories(storyType string, limit int) ([]Item, error) {
+// getStoryIDs is a helper function to fetch story IDs by type
+func (c *Client) getStoryIDs(storyType string, limit int) ([]int, error) {
 	url := fmt.Sprintf("%s/%s.json", c.apiBase, storyType)
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -157,6 +158,16 @@ func (c *Client) getStories(storyType string, limit int) ([]Item, error) {
 	// Limit the number of stories if specified
 	if limit > 0 && limit < len(ids) {
 		ids = ids[:limit]
+	}
+
+	return ids, nil
+}
+
+// getStories is a helper function to fetch full story items by type
+func (c *Client) getStories(storyType string, limit int) ([]Item, error) {
+	ids, err := c.getStoryIDs(storyType, limit)
+	if err != nil {
+		return nil, err
 	}
 
 	// Create a channel to receive items and errors
@@ -201,29 +212,29 @@ func (c *Client) GetTopStories(limit int) ([]Item, error) {
 	return c.getStories("topstories", limit)
 }
 
-// GetNewStories fetches up to 500 newest stories
-func (c *Client) GetNewStories(limit int) ([]Item, error) {
-	return c.getStories("newstories", limit)
+// GetNewStories fetches up to 500 newest story IDs
+func (c *Client) GetNewStories(limit int) ([]int, error) {
+	return c.getStoryIDs("newstories", limit)
 }
 
-// GetBestStories fetches the best stories
-func (c *Client) GetBestStories(limit int) ([]Item, error) {
-	return c.getStories("beststories", limit)
+// GetBestStories fetches the best story IDs
+func (c *Client) GetBestStories(limit int) ([]int, error) {
+	return c.getStoryIDs("beststories", limit)
 }
 
-// GetAskStories fetches up to 200 latest Ask HN stories
-func (c *Client) GetAskStories(limit int) ([]Item, error) {
-	return c.getStories("askstories", limit)
+// GetAskStories fetches up to 200 latest Ask HN story IDs
+func (c *Client) GetAskStories(limit int) ([]int, error) {
+	return c.getStoryIDs("askstories", limit)
 }
 
-// GetShowStories fetches up to 200 latest Show HN stories
-func (c *Client) GetShowStories(limit int) ([]Item, error) {
-	return c.getStories("showstories", limit)
+// GetShowStories fetches up to 200 latest Show HN story IDs
+func (c *Client) GetShowStories(limit int) ([]int, error) {
+	return c.getStoryIDs("showstories", limit)
 }
 
-// GetJobStories fetches up to 200 latest Job stories
-func (c *Client) GetJobStories(limit int) ([]Item, error) {
-	return c.getStories("jobstories", limit)
+// GetJobStories fetches up to 200 latest Job story IDs
+func (c *Client) GetJobStories(limit int) ([]int, error) {
+	return c.getStoryIDs("jobstories", limit)
 }
 
 // GetUpdates fetches items and profiles that have been changed
@@ -589,47 +600,43 @@ func (c *Client) GetStoriesPage(storyType string, page, perPage int) ([]Item, er
 	type result struct {
 		item *Item
 		err  error
-		idx  int // Add index to track original position
 	}
 	results := make(chan result, len(pageIDs))
 
 	// Fetch items concurrently
-	for i, id := range pageIDs {
-		go func(id, idx int) {
+	for _, id := range pageIDs {
+		go func(id int) {
 			item, err := c.GetItem(id)
-			results <- result{item: item, err: err, idx: idx}
-		}(id, i)
+			results <- result{item: item, err: err}
+		}(id)
 	}
 
-	// Collect results
-	collected := make([]result, len(pageIDs))
+	// Collect results in a map to maintain order
+	itemMap := make(map[int]*Item)
 	var lastErr error
-	for i := 0; i < len(pageIDs); i++ {
+	for range pageIDs {
 		res := <-results
 		if res.err != nil {
-			log.Printf("Error fetching item: %v", res.err)
 			lastErr = res.err
 			continue
 		}
-		collected[res.idx] = res
-	}
-
-	// Build final items slice in correct order
-	items := make([]Item, 0, len(pageIDs))
-	for _, res := range collected {
 		if res.item != nil && (res.item.Type == "story" || res.item.Type == "job") {
-			items = append(items, *res.item)
+			itemMap[res.item.ID] = res.item
 		}
 	}
 
 	// If we got no items but had errors, return the last error
-	if len(items) == 0 && lastErr != nil {
+	if len(itemMap) == 0 && lastErr != nil {
 		return nil, fmt.Errorf("failed to fetch any valid stories: %v", lastErr)
 	}
 
-	// taking into account page/perpage, add a Rank field to each item
-	for i := range items {
-		items[i].Rank = start + i + 1
+	// Reconstruct the items in the original order with proper ranking
+	items := make([]Item, 0, len(pageIDs))
+	for i, id := range pageIDs {
+		if item, ok := itemMap[id]; ok {
+			item.Rank = start + i + 1
+			items = append(items, *item)
+		}
 	}
 
 	return items, nil

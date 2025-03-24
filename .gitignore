@@ -13,3 +13,4 @@ env.local
 /Godeps/
 editor
 go-hn
+/data

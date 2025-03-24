@@ -12,12 +12,18 @@ import (
 	"time"
 
 	"github.com/tluyben/go-hn/hn"
+	"github.com/tluyben/go-hn/search"
 )
 
 // Embed static files into the binary
 //
 //go:embed static templates
 var content embed.FS
+
+var (
+	searchIndex *search.Index
+	client      *hn.Client
+)
 
 // Settings struct for user preferences
 type Settings struct {
@@ -71,6 +77,56 @@ var funcMap = template.FuncMap{
 		}
 		return *dir == val
 	},
+}
+
+// Initialize search index and HN client
+func init() {
+	var err error
+	searchIndex, err = search.GetIndex()
+	if err != nil {
+		log.Fatalf("Failed to initialize search index: %v", err)
+	}
+
+	client, err = hn.NewClient()
+	if err != nil {
+		log.Fatalf("Failed to initialize HN client: %v", err)
+	}
+}
+
+// Get item from search index or fetch from HN API
+func getItem(id int) (*hn.Item, error) {
+	// Try to get from search index first
+	searchableItem, err := searchIndex.GetItem(id)
+	if err == nil {
+		// Convert SearchableItem back to hn.Item
+		return &hn.Item{
+			ID:          searchableItem.ID,
+			Type:        searchableItem.Type,
+			By:          searchableItem.By,
+			Time:        searchableItem.Time,
+			Text:        searchableItem.Text,
+			Parent:      searchableItem.Parent,
+			URL:         searchableItem.URL,
+			Score:       searchableItem.Score,
+			Title:       searchableItem.Title,
+			Descendants: searchableItem.Descendants,
+			Rank:        searchableItem.Rank,
+			VoteDir:     searchableItem.VoteDir,
+		}, nil
+	}
+
+	// If not found in index, fetch from HN API
+	item, err := client.GetItem(id)
+	if err != nil {
+		return nil, err
+	}
+
+	// Index the item for future use
+	if err := searchIndex.IndexItem(item); err != nil {
+		log.Printf("Failed to index item %d: %v", id, err)
+	}
+
+	return item, nil
 }
 
 // Get theme from cookie or default to system
@@ -139,6 +195,75 @@ func createTemplateData(title string, content string, r *http.Request) map[strin
 	}
 }
 
+func getCommentWithParent(comment hn.CommentWithStory) (*hn.CommentWithStory, error) {
+	// First, index the comment itself
+	if err := searchIndex.IndexItem(&comment.Comment); err != nil {
+		log.Printf("Failed to index comment %d: %v", comment.Comment.ID, err)
+	}
+
+	// If we have a story, try to get it from the index first
+	if comment.Story != nil {
+		// Try to get the story from our index first
+		cachedStory, err := searchIndex.GetItem(comment.Story.ID)
+		if err == nil {
+			// Convert cached story back to hn.Item
+			comment.Story = &hn.Item{
+				ID:          cachedStory.ID,
+				Type:        cachedStory.Type,
+				By:          cachedStory.By,
+				Time:        cachedStory.Time,
+				Text:        cachedStory.Text,
+				Parent:      cachedStory.Parent,
+				URL:         cachedStory.URL,
+				Score:       cachedStory.Score,
+				Title:       cachedStory.Title,
+				Descendants: cachedStory.Descendants,
+				Rank:        cachedStory.Rank,
+				VoteDir:     cachedStory.VoteDir,
+			}
+		} else {
+			// If not in index, index the story we have
+			if err := searchIndex.IndexItem(comment.Story); err != nil {
+				log.Printf("Failed to index story %d: %v", comment.Story.ID, err)
+			}
+		}
+	} else if comment.Comment.Parent > 0 {
+		// If we don't have the story but have a parent, try to get it from the index
+		parent, err := searchIndex.GetItem(comment.Comment.Parent)
+		if err == nil {
+			// Convert cached parent back to hn.Item
+			comment.Story = &hn.Item{
+				ID:          parent.ID,
+				Type:        parent.Type,
+				By:          parent.By,
+				Time:        parent.Time,
+				Text:        parent.Text,
+				Parent:      parent.Parent,
+				URL:         parent.URL,
+				Score:       parent.Score,
+				Title:       parent.Title,
+				Descendants: parent.Descendants,
+				Rank:        parent.Rank,
+				VoteDir:     parent.VoteDir,
+			}
+		} else {
+			// Only fetch from HN API if not in our index
+			parent, err := client.GetItem(comment.Comment.Parent)
+			if err != nil {
+				log.Printf("Failed to get parent %d for comment %d: %v", comment.Comment.Parent, comment.Comment.ID, err)
+			} else {
+				// Index the parent story/comment
+				if err := searchIndex.IndexItem(parent); err != nil {
+					log.Printf("Failed to index parent %d: %v", parent.ID, err)
+				}
+				comment.Story = parent
+			}
+		}
+	}
+
+	return &comment, nil
+}
+
 func main() {
 	// Set up logging
 	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
@@ -195,12 +320,103 @@ func main() {
 			}
 
 			log.Printf("Fetching new comments (page: %d, perPage: %d)", page, perPage)
-			comments, err := client.GetNewComments(page * perPage)
+
+			// Get max item ID from Firebase (this is unavoidable)
+			maxID, err := client.GetMaxItem()
 			if err != nil {
-				log.Printf("Error fetching comments: %v", err)
+				log.Printf("Error getting max item ID: %v", err)
 				http.Error(w, "Failed to load comments", http.StatusInternalServerError)
 				return
 			}
+
+			// Calculate the range of IDs to check
+			startID := maxID
+			endID := maxID - perPage*5 // Fetch more items since not all will be comments
+			if endID < 0 {
+				endID = 0
+			}
+
+			// Try to get comments from our index first
+			comments := make([]*hn.CommentWithStory, 0, perPage)
+			for id := startID; id > endID && len(comments) < perPage; id-- {
+				// Try to get from our index first
+				item, err := searchIndex.GetItem(id)
+				if err != nil {
+					continue // Skip if not in index
+				}
+
+				// Only process if it's a comment
+				if item.Type != "comment" {
+					continue
+				}
+
+				// Try to get the parent story from our index
+				var story *hn.Item
+				if item.Parent > 0 {
+					parent, err := searchIndex.GetItem(item.Parent)
+					if err == nil {
+						// Convert cached parent back to hn.Item
+						story = &hn.Item{
+							ID:          parent.ID,
+							Type:        parent.Type,
+							By:          parent.By,
+							Time:        parent.Time,
+							Text:        parent.Text,
+							Parent:      parent.Parent,
+							URL:         parent.URL,
+							Score:       parent.Score,
+							Title:       parent.Title,
+							Descendants: parent.Descendants,
+							Rank:        parent.Rank,
+							VoteDir:     parent.VoteDir,
+						}
+					}
+				}
+
+				// Convert cached item back to hn.Item
+				comment := &hn.Item{
+					ID:          item.ID,
+					Type:        item.Type,
+					By:          item.By,
+					Time:        item.Time,
+					Text:        item.Text,
+					Parent:      item.Parent,
+					URL:         item.URL,
+					Score:       item.Score,
+					Title:       item.Title,
+					Descendants: item.Descendants,
+					Rank:        item.Rank,
+					VoteDir:     item.VoteDir,
+				}
+
+				comments = append(comments, &hn.CommentWithStory{
+					Comment: *comment,
+					Story:   story,
+				})
+			}
+
+			// If we don't have enough comments from our index, fetch from Firebase
+			if len(comments) < perPage {
+				log.Printf("Not enough comments in index (%d), fetching from Firebase", len(comments))
+				firebaseComments, err := client.GetNewComments(perPage)
+				if err != nil {
+					log.Printf("Error fetching comments from Firebase: %v", err)
+					http.Error(w, "Failed to load comments", http.StatusInternalServerError)
+					return
+				}
+
+				// Process Firebase comments through our index
+				for _, comment := range firebaseComments {
+					processed, err := getCommentWithParent(comment)
+					if err != nil {
+						log.Printf("Error processing comment %d: %v", comment.Comment.ID, err)
+						continue
+					}
+					comments = append(comments, processed)
+				}
+			}
+
+			log.Printf("Retrieved %d total comments", len(comments))
 
 			// Calculate pagination
 			start := (page - 1) * perPage
@@ -210,7 +426,7 @@ func main() {
 			}
 			pageComments := comments[start:end]
 
-			log.Printf("Retrieved %d comments", len(pageComments))
+			log.Printf("Retrieved %d comments for page %d", len(pageComments), page)
 			if len(pageComments) == 0 {
 				log.Printf("Warning: No comments returned for page %d", page)
 			}
@@ -257,7 +473,9 @@ func main() {
 			}
 		}
 
-		log.Printf("Fetching stories for section %s (page: %d, perPage: %d)", section, page, perPage)
+		log.Printf("Fetching %s (page: %d, perPage: %d)", section, page, perPage)
+
+		// Get stories for this page
 		stories, err := client.GetStoriesPage(section, page, perPage)
 		if err != nil {
 			log.Printf("Error fetching stories: %v", err)
@@ -265,17 +483,9 @@ func main() {
 			return
 		}
 
-		log.Printf("Retrieved %d stories", len(stories))
-		if len(stories) == 0 {
-			log.Printf("Warning: No stories returned for section %s page %d", section, page)
-		}
+		log.Printf("Retrieved %d total stories", len(stories))
 
-		// Debug log the first story if available
-		if len(stories) > 0 {
-			log.Printf("First story: Title=%s, By=%s, Score=%d", stories[0].Title, stories[0].By, stories[0].Score)
-		}
-
-		data := createTemplateData("Hacker News", "stories-content", r)
+		data := createTemplateData("Hacker News", "stories-list", r)
 		data["Stories"] = stories
 		data["Page"] = page
 		data["NextPage"] = page + 1
@@ -313,7 +523,7 @@ func main() {
 			return
 		}
 
-		item, err := client.GetItem(id)
+		item, err := getItem(id)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
