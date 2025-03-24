@@ -2,7 +2,6 @@ package main
 
 import (
 	"embed"
-	"encoding/json"
 	"fmt"
 	"html/template"
 	"log"
@@ -66,29 +65,48 @@ var funcMap = template.FuncMap{
 
 // Get theme from cookie or default to system
 func getTheme(r *http.Request) string {
-	cookie, err := r.Cookie("settings")
+	cookie, err := r.Cookie("theme")
 	if err != nil {
 		return "system"
 	}
 
-	var settings Settings
-	if err := json.Unmarshal([]byte(cookie.Value), &settings); err != nil {
+	theme := cookie.Value
+
+	// Validate theme
+	validThemes := map[string]bool{
+		"light":  true,
+		"dark":   true,
+		"system": true,
+	}
+
+	if !validThemes[theme] {
 		return "system"
 	}
 
-	return settings.Theme
+	return theme
 }
 
 // Set theme in cookie
 func setTheme(w http.ResponseWriter, theme string) {
-	settings := Settings{Theme: theme}
-	jsonData, _ := json.Marshal(settings)
+	// Validate theme
+	validThemes := map[string]bool{
+		"light":  true,
+		"dark":   true,
+		"system": true,
+	}
+
+	if !validThemes[theme] {
+		theme = "system" // Default to system if theme is invalid
+	}
+
+	// Set the cookie directly with the theme value, no JSON encoding
 	http.SetCookie(w, &http.Cookie{
-		Name:     "settings",
-		Value:    string(jsonData),
+		Name:     "theme",
+		Value:    theme,
 		Path:     "/",
 		MaxAge:   365 * 24 * 60 * 60, // 1 year
-		HttpOnly: true,
+		HttpOnly: false,              // Allow JavaScript to access this cookie for theme sync
+		SameSite: http.SameSiteLaxMode,
 	})
 }
 
@@ -281,10 +299,33 @@ func main() {
 			newTheme = "light"
 		}
 
+		log.Printf("Toggling theme from %s to %s", currentTheme, newTheme)
 		setTheme(w, newTheme)
 
-		data := createTemplateData("Hacker News", "stories-content", r)
-		tmpl.ExecuteTemplate(w, "base", data)
+		// For HTMX requests, return a script to update the theme
+		if r.Header.Get("HX-Request") == "true" {
+			w.Header().Set("Content-Type", "text/javascript")
+			w.Write([]byte(fmt.Sprintf(`
+				// Update theme
+				document.documentElement.setAttribute('data-theme', '%s');
+				
+				// For system theme, apply based on OS preference
+				if ('%s' === 'system') {
+					const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+					document.documentElement.setAttribute('data-theme', prefersDark ? 'dark' : 'light');
+				}
+				
+				// Dispatch event to notify theme has changed
+				document.dispatchEvent(new CustomEvent('themeChanged', { detail: { theme: '%s' } }));
+			`, newTheme, newTheme, newTheme)))
+		} else {
+			// For non-HTMX requests, redirect back
+			referer := r.Header.Get("Referer")
+			if referer == "" {
+				referer = "/"
+			}
+			http.Redirect(w, r, referer, http.StatusSeeOther)
+		}
 	})
 
 	// Menu toggle handler

@@ -23,6 +23,35 @@
     --shadow-color: rgba(0, 0, 0, 0.3);
 }
 
+/* System theme - applies the same rules as dark/light depending on user preference */
+@media (prefers-color-scheme: dark) {
+    [data-theme="system"] {
+        --bg-primary: #1a1a1a;
+        --bg-secondary: #2d2d2d;
+        --text-primary: #ffffff;
+        --text-secondary: #b3b3b3;
+        --accent-color: #ff6600;
+        --border-color: #404040;
+        --hover-bg: #333333;
+        --card-bg: #2d2d2d;
+        --shadow-color: rgba(0, 0, 0, 0.3);
+    }
+}
+
+@media (prefers-color-scheme: light) {
+    [data-theme="system"] {
+        --bg-primary: #ffffff;
+        --bg-secondary: #f6f6f6;
+        --text-primary: #1a1a1a;
+        --text-secondary: #666666;
+        --accent-color: #ff6600;
+        --border-color: #e5e5e5;
+        --hover-bg: #f0f0f0;
+        --card-bg: #ffffff;
+        --shadow-color: rgba(0, 0, 0, 0.1);
+    }
+}
+
 * {
     margin: 0;
     padding: 0;
@@ -127,10 +156,8 @@ body {
     display: none;
 }
 
-[data-theme="light"] .sun-icon,
-[data-theme="dark"] .moon-icon {
-    display: block;
-}
+/* Handle the theme icons explicitly rather than relying on CSS to ensure JS control works */
+/* Removed the previous CSS rules that were controlling icon display */
 
 .login-button {
     background-color: var(--accent-color);
@@ -307,38 +334,33 @@ body {
 /* Mobile Responsive */
 @media (max-width: 768px) {
     .menu-toggle {
-        display: block;
-        margin-right: 1rem;
-        padding: 0.5rem;
-        border: none;
-        background: none;
-        cursor: pointer;
-        color: var(--text-primary);
+        display: flex;
+        justify-content: center;
+        align-items: center;
     }
 
     .nav-links {
         display: none;
-        position: fixed;
-        top: 60px;
+        position: absolute;
+        top: 100%;
         left: 0;
         right: 0;
-        bottom: 0;
         background-color: var(--bg-secondary);
-        padding: 1rem;
         flex-direction: column;
-        z-index: 999;
+        padding: 1rem;
+        border-bottom: 1px solid var(--border-color);
+        z-index: 1000;
+        box-shadow: 0 4px 6px var(--shadow-color);
     }
 
-    .nav-links.show {
+    .nav-links.active {
         display: flex;
     }
 
     .nav-links a {
-        padding: 1rem;
+        padding: 0.75rem 0;
+        width: 100%;
         border-bottom: 1px solid var(--border-color);
-        color: var(--text-primary);
-        text-decoration: none;
-        font-size: 1.1rem;
     }
 
     .nav-links a:last-child {
@@ -346,53 +368,48 @@ body {
     }
 
     .nav-links a:hover {
-        background-color: var(--hover-bg);
+        background-color: transparent;
+        color: var(--accent-color);
     }
 
-    /* Ensure the header stays above the mobile menu */
     .header {
-        position: fixed;
-        width: 100%;
+        position: sticky;
         top: 0;
         z-index: 1000;
-        background-color: var(--bg-secondary);
-        border-bottom: 1px solid var(--border-color);
     }
 
-    /* Add padding to main content to account for fixed header */
     .content {
-        padding-top: 80px;
+        padding: 1rem;
     }
 
-    /* Prevent body scroll when menu is open */
     body.menu-open {
         overflow: hidden;
     }
 
-    /* Adjust logo and site name for mobile */
     .logo {
-        font-size: 1.2rem;
+        margin-right: 0.5rem;
     }
 
     .site-name {
-        font-size: 1rem;
+        display: block;
     }
 
     .story-item {
+        padding: 0.75rem 0;
+    }
+
+    .story-meta {
         flex-direction: column;
     }
-    
-    .story-meta {
-        margin-bottom: 8px;
-    }
-    
+
     .story-title-line {
         flex-direction: column;
         align-items: flex-start;
     }
-    
+
     .story-domain {
-        margin-top: 4px;
+        margin-left: 0;
+        margin-top: 0.25rem;
     }
 }
 

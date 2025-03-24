@@ -9,7 +9,18 @@
     <meta name="theme-color" content="#1a1a1a" media="(prefers-color-scheme: dark)">
     <title>{{ .Title }} - Modern Hacker News</title>
     <link rel="stylesheet" href="/static/css/style.css">
+    <script>
+        // Apply system theme immediately if needed
+        (function() {
+            const theme = document.documentElement.getAttribute('data-theme');
+            if (theme === 'system') {
+                const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+                document.documentElement.setAttribute('data-theme', prefersDark ? 'dark' : 'light');
+            }
+        })();
+    </script>
     <script src="/static/js/htmx.min.js"></script>
+    <script src="/static/js/theme.js" defer></script>
     <link rel="icon" type="image/png" href="/static/img/favicon.png">
 </head>
 <body>
@@ -17,8 +28,7 @@
         <nav class="nav-container">
             <div class="nav-left">
                 <button class="menu-toggle" 
-                        aria-label="Toggle menu"
-                        onclick="toggleMenu()">
+                        aria-label="Toggle menu">
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <path d="M3 12h18M3 6h18M3 18h18"/>
                     </svg>
@@ -40,8 +50,8 @@
                     <button id="theme-toggle" 
                             aria-label="Toggle theme"
                             hx-post="/toggle-theme"
-                            hx-target="html"
-                            hx-swap="outerHTML">
+                            hx-swap="none"
+                            hx-trigger="click">
                         <svg class="sun-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <circle cx="12" cy="12" r="5"/>
                             <line x1="12" y1="1" x2="12" y2="3"/>
@@ -87,14 +97,6 @@
             </nav>
         </div>
     </footer>
-
-    <script>
-        function toggleMenu() {
-            const menu = document.getElementById('mobile-menu');
-            menu.classList.toggle('show');
-            document.body.classList.toggle('menu-open');
-        }
-    </script>
 </body>
 </html>
 {{ end }} 
