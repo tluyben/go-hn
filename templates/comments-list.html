@@ -62,12 +62,9 @@
     
     <div class="pagination">
         {{ if .MoreLink }}
-        <a href="?p={{.NextPage}}" 
+        <a href="/newcomments?p={{.NextPage}}" 
            class="more-link"
-           hx-get="?p={{.NextPage}}&htmx=true"
-           hx-target=".comment-items"
-           hx-swap="beforeend"
-           hx-trigger="click"
+          
         >
             More
         </a>

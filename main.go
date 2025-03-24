@@ -305,10 +305,12 @@ func main() {
 			data["Page"] = page
 			data["NextPage"] = page + 1
 			data["MoreLink"] = end < len(comments)
+			data["LoggedIn"] = client.IsLoggedIn()
 
 			var templateErr error
 			if r.Header.Get("HX-Request") == "true" {
 				log.Printf("HTMX request detected, executing content template")
+				w.Header().Set("HX-Push-Url", fmt.Sprintf("/newcomments?p=%d", page))
 				templateErr = tmpl.ExecuteTemplate(w, "comments-list", data)
 			} else {
 				log.Printf("Regular request, executing base template")
