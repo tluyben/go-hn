@@ -8,4 +8,6 @@ clean:
 	rm -f $(BINARY_NAME)
 test:
 	go test ./...
-.PHONY: build run clean test
+dev:
+	air
+.PHONY: build run clean test dev
