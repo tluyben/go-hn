@@ -1,8 +1,9 @@
 {{ define "stories-content" }}
-<div class="stories-container">
+<div class="stories-container" id="stories-container">
     <div class="story-items">
         {{ range .Stories }}
         <article class="story-item" id="story-{{.ID}}">
+            <!-- Story content remains the same -->
             <div class="story-meta">
                 <span class="story-rank">{{.Rank}}.</span>
                 <button 
@@ -47,14 +48,7 @@
     
     <div class="pagination">
         {{ if .MoreLink }}
-        <a href="/{{.Section}}?p={{.NextPage}}" 
-           class="more-link"
-           hx-get="/{{.Section}}?p={{.NextPage}}"
-           hx-target=".story-items"
-           hx-swap="beforeend"
-           hx-trigger="click"
-           hx-push-url="false"
-        >
+        <a href="/{{.Section}}?p={{.NextPage}}" class="more-link">
             More
         </a>
         {{ end }}
@@ -202,48 +196,3 @@
 }
 </style>
 {{ end }}
-
-{{ define "story-items" }}
-{{ range .Stories }}
-<article class="story-item" id="story-{{.ID}}">
-    <div class="story-meta">
-        <span class="story-rank">{{.Rank}}.</span>
-        <button 
-            class="vote-button {{ if hasVoted .VoteDir 1 }}voted{{ end }}"
-            hx-post="/vote"
-            hx-vals='{"id": {{.ID}}, "type": "up"}'
-            hx-swap="outerHTML"
-            {{ if not $.LoggedIn }}disabled{{ end }}
-        >
-            ▲
-        </button>
-    </div>
-    <div class="story-content">
-        <div class="story-title-line">
-            <a href="{{ if .URL }}{{.URL}}{{ else }}/item/{{.ID}}{{ end }}" class="story-title" {{ if .URL }}target="_blank" rel="noopener"{{ end }}>
-                {{.Title}}
-            </a>
-            {{ if .URL }}
-            <span class="story-domain">({{getDomain .URL}})</span>
-            {{ end }}
-        </div>
-        <div class="story-details">
-            <span class="story-score">{{.Score}} points</span>
-            <span class="story-author">by <a href="/user/{{.By}}">{{.By}}</a></span>
-            <span class="story-time">{{timeAgo .Time}}</span>
-            <span class="story-comments">
-                <a href="/item/{{.ID}}">{{ if .Descendants }}{{ .Descendants }} comments{{ else }}discuss{{ end }}</a>
-            </span>
-            {{ if $.LoggedIn }}
-            <span class="story-actions">
-                <span>|</span>
-                <a href="#" hx-post="/flag" hx-vals='{"id": {{.ID}}}' class="action-link">flag</a>
-                <span>|</span>
-                <a href="#" hx-post="/hide" hx-vals='{"id": {{.ID}}}' class="action-link">hide</a>
-            </span>
-            {{ end }}
-        </div>
-    </div>
-</article>
-{{ end }}
-{{ end }} 
