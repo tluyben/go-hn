@@ -28,6 +28,7 @@ type SearchableItem struct {
 	Hidden      bool   `json:"hidden"`
 	Flagged     bool   `json:"flagged"`
 	Summary     string `json:"summary,omitempty"`
+	Kids        []int  `json:"kids,omitempty"`
 }
 
 // Index manages the Bleve search index
@@ -95,6 +96,7 @@ func (i *Index) IndexItem(item *types.Item) error {
 		Descendants: item.Descendants,
 		Rank:        item.Rank,
 		VoteDir:     item.VoteDir,
+		Kids:        item.Kids,
 	}
 
 	// Index with the same ID format
@@ -108,7 +110,6 @@ func (i *Index) GetItem(id int) (*SearchableItem, error) {
 
 	// Create a query to find the document by ID
 	query := bleve.NewDocIDQuery([]string{fmt.Sprintf("%d", id)})
-	// query.SetField("id") // Search in the id field specifically
 	searchRequest := bleve.NewSearchRequest(query)
 	searchRequest.Fields = []string{"*"} // Retrieve all fields
 
@@ -156,6 +157,13 @@ func (i *Index) GetItem(id int) (*SearchableItem, error) {
 	}
 	if summary, ok := hit.Fields["summary"]; ok {
 		item.Summary = summary.(string)
+	}
+	if kids, ok := hit.Fields["kids"]; ok && kids != nil {
+		kidsArray := kids.([]interface{})
+		item.Kids = make([]int, len(kidsArray))
+		for i, kid := range kidsArray {
+			item.Kids[i] = int(kid.(float64))
+		}
 	}
 
 	return item, nil

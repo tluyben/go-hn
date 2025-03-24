@@ -111,7 +111,7 @@ func (c *Client) GetItem(id int) (*types.Item, error) {
 	if err == nil {
 		fmt.Println("Search Engine hit for item ", id)
 		// Convert SearchableItem back to hn.Item
-		return &types.Item{
+		item := &types.Item{
 			ID:          searchableItem.ID,
 			Type:        searchableItem.Type,
 			By:          searchableItem.By,
@@ -124,10 +124,16 @@ func (c *Client) GetItem(id int) (*types.Item, error) {
 			Descendants: searchableItem.Descendants,
 			Rank:        searchableItem.Rank,
 			VoteDir:     searchableItem.VoteDir,
-		}, nil
+			Kids:        searchableItem.Kids,
+		}
+		return item, nil
 	}
 
-	// If not found in index, fetch from HN API
+	return c.fetchItemFromAPI(id)
+}
+
+// fetchItemFromAPI fetches an item directly from the HN API
+func (c *Client) fetchItemFromAPI(id int) (*types.Item, error) {
 	fmt.Println("Fetching from HN API for item ", id)
 	url := fmt.Sprintf("%s/item/%d.json", c.apiBase, id)
 	req, err := http.NewRequest("GET", url, nil)

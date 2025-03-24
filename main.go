@@ -131,6 +131,7 @@ func getItem(id int) (*types.Item, error) {
 			Descendants: searchableItem.Descendants,
 			Rank:        searchableItem.Rank,
 			VoteDir:     searchableItem.VoteDir,
+			Kids:        searchableItem.Kids,
 		}, nil
 	}
 
@@ -138,11 +139,6 @@ func getItem(id int) (*types.Item, error) {
 	item, err := client.GetItem(id)
 	if err != nil {
 		return nil, err
-	}
-
-	// Index the item for future use
-	if err := searchIndex.IndexItem(item); err != nil {
-		log.Printf("Failed to index item %d: %v", id, err)
 	}
 
 	return item, nil
@@ -401,14 +397,18 @@ func main() {
 			return
 		}
 
+		fmt.Println("Item", item)
 		// Create a map to store all comments for O(1) lookup
 		commentMap := make(map[int]*types.Item)
 
 		// Fetch all comments recursively
 		comments := make([]*types.Item, 0)
+
 		if item.Kids != nil && len(item.Kids) > 0 {
 			for _, kidID := range item.Kids {
+
 				comment, err := getItem(kidID)
+				fmt.Println("Comment", comment)
 				if err != nil {
 					log.Printf("Error fetching comment %d: %v", kidID, err)
 					continue
