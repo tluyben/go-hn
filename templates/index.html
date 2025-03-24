@@ -1,0 +1,57 @@
+{{ template "base" . }}
+
+{{ define "content" }}
+<div class="stories-container">
+    {{ range $index, $story := .Stories }}
+    <div class="story-item">
+        <div class="story-meta">
+            <span class="story-rank">{{add $index 1}}.</span>
+            <button 
+                class="vote-button {{ if $story.Voted }}voted{{ end }}"
+                hx-post="/vote"
+                hx-vals='{"id": {{$story.ID}}, "type": "up"}'
+                hx-swap="outerHTML"
+                {{ if not $.LoggedIn }}disabled{{ end }}
+            >
+                ▲
+            </button>
+        </div>
+        <div class="story-content">
+            <div class="story-title-line">
+                <a href="{{ if $story.URL }}{{$story.URL}}{{ else }}/item/{{$story.ID}}{{ end }}" class="story-title">
+                    {{$story.Title}}
+                </a>
+                {{ if $story.URL }}
+                <span class="story-domain">({{getDomain $story.URL}})</span>
+                {{ end }}
+            </div>
+            <div class="story-details">
+                <span>{{$story.Score}} points</span>
+                <span>by <a href="/user/{{$story.By}}">{{$story.By}}</a></span>
+                <span>{{timeAgo $story.Time}}</span>
+                <a href="/item/{{$story.ID}}">{{ if $story.Descendants }}{{$story.Descendants}} comments{{ else }}discuss{{ end }}</a>
+                {{ if $.LoggedIn }}
+                <span>|</span>
+                <a href="#" hx-post="/flag" hx-vals='{"id": {{$story.ID}}}' class="action-link">flag</a>
+                <span>|</span>
+                <a href="#" hx-post="/hide" hx-vals='{"id": {{$story.ID}}}' class="action-link">hide</a>
+                {{ end }}
+            </div>
+        </div>
+    </div>
+    {{ end }}
+
+    {{ if .MoreLink }}
+    <div class="more-stories">
+        <a href="?p={{.NextPage}}" 
+           class="more-link"
+           hx-get="/?p={{.NextPage}}"
+           hx-target=".stories-container"
+           hx-swap="outerHTML"
+           hx-push-url="true">
+            More
+        </a>
+    </div>
+    {{ end }}
+</div>
+{{ end }}

@@ -1,0 +1,119 @@
+{{ define "content" }}
+<div class="item-container">
+    <!-- Story/Item Details -->
+    <article class="item-details">
+        <div class="item-header">
+            <h1 class="item-title">
+                {{ if .Item.URL }}
+                <a href="{{.Item.URL}}" target="_blank">{{.Item.Title}}</a>
+                {{ if .Item.Domain }}
+                <span class="item-domain">({{.Item.Domain}})</span>
+                {{ end }}
+                {{ else }}
+                {{.Item.Title}}
+                {{ end }}
+            </h1>
+        </div>
+        
+        {{ if .Item.Text }}
+        <div class="item-text">
+            {{.Item.Text}}
+        </div>
+        {{ end }}
+        
+        <div class="item-meta">
+            <span class="item-score">{{.Item.Score}} points</span>
+            <span class="item-author">by <a href="/user/{{.Item.By}}">{{.Item.By}}</a></span>
+            <span class="item-time">{{.Item.TimeAgo}}</span>
+            {{ if $.LoggedIn }}
+            <span class="item-actions">
+                <span>|</span>
+                <a href="#" hx-post="/flag" hx-vals='{"id": {{.Item.ID}}}' class="action-link">flag</a>
+                <span>|</span>
+                <a href="#" hx-post="/hide" hx-vals='{"id": {{.Item.ID}}}' class="action-link">hide</a>
+            </span>
+            {{ end }}
+        </div>
+    </article>
+
+    <!-- Comment Form -->
+    {{ if $.LoggedIn }}
+    <div class="comment-form-container">
+        <form class="comment-form" hx-post="/comment" hx-target="#comments-container">
+            <input type="hidden" name="parent_id" value="{{.Item.ID}}">
+            <textarea name="text" rows="6" placeholder="Add your comment..." required></textarea>
+            <button type="submit" class="submit-button">add comment</button>
+        </form>
+    </div>
+    {{ end }}
+
+    <!-- Comments Section -->
+    <div id="comments-container" class="comments-container">
+        {{ template "comments_tree" .Comments }}
+    </div>
+</div>
+{{ end }}
+
+{{ define "comments_tree" }}
+{{ range . }}
+<div class="comment comment-level-{{.Level}}" id="comment-{{.ID}}">
+    <div class="comment-meta">
+        <button 
+            class="vote-button {{ if .Voted }}voted{{ end }}"
+            hx-post="/vote"
+            hx-vals='{"id": {{.ID}}, "type": "up"}'
+            hx-swap="outerHTML"
+            {{ if not $.LoggedIn }}disabled{{ end }}
+        >
+            ▲
+        </button>
+        <span class="comment-author">
+            <a href="/user/{{.By}}">{{.By}}</a>
+        </span>
+        <span class="comment-time">{{.TimeAgo}}</span>
+        {{ if .Parent }}
+        <a href="#comment-{{.Parent}}" class="comment-parent">parent</a>
+        {{ end }}
+        {{ if $.LoggedIn }}
+        <span class="comment-actions">
+            <span>|</span>
+            <a href="#" 
+               hx-get="/reply/{{.ID}}"
+               hx-target="#reply-{{.ID}}"
+               class="action-link">reply</a>
+            {{ if .CanDownvote }}
+            <span>|</span>
+            <a href="#"
+               hx-post="/vote"
+               hx-vals='{"id": {{.ID}}, "type": "down"}'
+               class="action-link">downvote</a>
+            {{ end }}
+            <span>|</span>
+            <a href="#" 
+               hx-post="/flag"
+               hx-vals='{"id": {{.ID}}}'
+               class="action-link">flag</a>
+        </span>
+        {{ end }}
+    </div>
+    
+    <div class="comment-text">
+        {{.Text}}
+    </div>
+    
+    <div id="reply-{{.ID}}" class="reply-container"></div>
+    
+    {{ if .Collapsed }}
+    <div class="comment-toggle">
+        <a href="#" 
+           hx-get="/comments/{{.ID}}"
+           hx-target="#comment-{{.ID}}"
+           hx-swap="outerHTML"
+        >
+            [{{.ChildCount}} more]
+        </a>
+    </div>
+    {{ end }}
+</div>
+{{ end }}
+{{ end }} 

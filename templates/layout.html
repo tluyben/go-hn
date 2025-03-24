@@ -1,0 +1,74 @@
+{{ define "base" }}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ .Title }} - Modern Hacker News</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <link rel="icon" type="image/png" href="/static/img/favicon.png">
+</head>
+<body>
+    <header class="header">
+        <nav class="nav-container">
+            <div class="nav-left">
+                <a href="/" class="logo">Y</a>
+                <a href="/" class="site-name">Hacker News</a>
+                <div class="nav-links">
+                    <a href="/newest">new</a>
+                    <span>|</span>
+                    <a href="/front">past</a>
+                    <span>|</span>
+                    <a href="/newcomments">comments</a>
+                    <span>|</span>
+                    <a href="/ask">ask</a>
+                    <span>|</span>
+                    <a href="/show">show</a>
+                    <span>|</span>
+                    <a href="/jobs">jobs</a>
+                    <span>|</span>
+                    <a href="/submit" class="submit-link">submit story</a>
+                </div>
+            </div>
+            <div class="nav-right">
+                <div class="user-controls" hx-boost="true">
+                    <template x-if="!loggedIn">
+                        <a href="/login">login</a>
+                    </template>
+                    <template x-if="loggedIn">
+                        <div class="user-menu">
+                            <span x-text="username"></span>
+                            <span>|</span>
+                            <a href="/logout">logout</a>
+                        </div>
+                    </template>
+                </div>
+            </div>
+        </nav>
+    </header>
+
+    <main class="content">
+        {{ template "content" . }}
+    </main>
+
+    <footer class="footer">
+        <div class="footer-content">
+            <nav class="footer-links">
+                <a href="/guidelines">Guidelines</a>
+                <span>|</span>
+                <a href="/faq">FAQ</a>
+                <span>|</span>
+                <a href="/lists">Lists</a>
+                <span>|</span>
+                <a href="/security">Security</a>
+                <span>|</span>
+                <a href="/legal">Legal</a>
+                <span>|</span>
+                <a href="/contact">Contact</a>
+            </nav>
+        </div>
+    </footer>
+</body>
+</html>
+{{ end }} 

@@ -1,0 +1,169 @@
+{{ define "content" }}
+{{ if eq .Content "submit" }}
+<div class="submit-container">
+    <div class="submit-box">
+        <h1>Submit</h1>
+        
+        <form class="submit-form" hx-post="/submit" hx-target="body">
+            {{ if .Error }}
+            <div class="error-message">
+                {{ .Error }}
+            </div>
+            {{ end }}
+            
+            <div class="form-group">
+                <label for="title">Title:</label>
+                <input type="text" 
+                       id="title" 
+                       name="title" 
+                       required 
+                       maxlength="80"
+                       autofocus>
+            </div>
+            
+            <div class="form-group">
+                <label for="url">URL:</label>
+                <input type="url" 
+                       id="url" 
+                       name="url"
+                       placeholder="https://">
+            </div>
+            
+            <div class="form-group">
+                <label for="text">Text:</label>
+                <textarea id="text" 
+                         name="text" 
+                         rows="6"
+                         placeholder="Leave URL blank to submit a question for discussion. Text will appear below the title."></textarea>
+            </div>
+            
+            <button type="submit" class="submit-button">submit</button>
+        </form>
+        
+        <div class="submit-guidelines">
+            <h2>Submission Guidelines</h2>
+            <ul>
+                <li>On-Topic: Anything that good hackers would find interesting.</li>
+                <li>Original Source: Please submit the original source.</li>
+                <li>Just One: Submit one story at a time.</li>
+                <li>No Duplicates: Search first to avoid duplicates.</li>
+                <li>Be Nice: Personal attacks are not allowed.</li>
+            </ul>
+        </div>
+    </div>
+</div>
+
+<style>
+.submit-container {
+    display: flex;
+    justify-content: center;
+    padding: var(--spacing-unit);
+    margin: calc(var(--spacing-unit) * 2) auto;
+    max-width: 800px;
+}
+
+.submit-box {
+    background: white;
+    padding: calc(var(--spacing-unit) * 3);
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    width: 100%;
+}
+
+.submit-box h1 {
+    margin-bottom: calc(var(--spacing-unit) * 2);
+    color: var(--text-color);
+}
+
+.submit-form {
+    display: flex;
+    flex-direction: column;
+    gap: calc(var(--spacing-unit) * 2);
+    margin-bottom: calc(var(--spacing-unit) * 3);
+}
+
+.form-group {
+    display: flex;
+    flex-direction: column;
+    gap: calc(var(--spacing-unit) / 2);
+}
+
+.form-group label {
+    color: var(--text-color);
+    font-size: 0.9rem;
+}
+
+.form-group input,
+.form-group textarea {
+    padding: var(--spacing-unit);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    font-size: 1rem;
+    font-family: inherit;
+    transition: border-color 0.2s ease;
+}
+
+.form-group input:focus,
+.form-group textarea:focus {
+    outline: none;
+    border-color: var(--primary-color);
+}
+
+.form-group textarea {
+    resize: vertical;
+    min-height: 100px;
+}
+
+.error-message {
+    background: #fff2f2;
+    color: #d63031;
+    padding: var(--spacing-unit);
+    border-radius: 4px;
+    margin-bottom: var(--spacing-unit);
+    font-size: 0.9rem;
+}
+
+.submit-guidelines {
+    margin-top: calc(var(--spacing-unit) * 3);
+    padding-top: calc(var(--spacing-unit) * 2);
+    border-top: 1px solid var(--border-color);
+}
+
+.submit-guidelines h2 {
+    font-size: 1.1rem;
+    margin-bottom: var(--spacing-unit);
+    color: var(--text-color);
+}
+
+.submit-guidelines ul {
+    list-style-type: none;
+    padding: 0;
+}
+
+.submit-guidelines li {
+    margin-bottom: calc(var(--spacing-unit) / 2);
+    color: var(--secondary-text);
+    font-size: 0.9rem;
+    padding-left: calc(var(--spacing-unit) * 1.5);
+    position: relative;
+}
+
+.submit-guidelines li::before {
+    content: "•";
+    position: absolute;
+    left: 0;
+    color: var(--primary-color);
+}
+
+@media (max-width: 768px) {
+    .submit-container {
+        padding: var(--spacing-unit);
+    }
+    
+    .submit-box {
+        padding: calc(var(--spacing-unit) * 2);
+    }
+}
+</style>
+{{ end }}
+{{ end }} 
