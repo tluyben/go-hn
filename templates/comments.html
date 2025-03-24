@@ -59,46 +59,68 @@
     <!-- Comments Section -->
     <div id="comments-container" class="comments-container">
         {{ range .Comments }}
-        <div class="comment" id="comment-{{.ID}}">
-            <div class="comment-meta">
-                <button 
-                    class="vote-button {{ if hasVoted .VoteDir 1 }}voted{{ end }}"
-                    hx-post="/vote"
-                    hx-vals='{"id": {{.ID}}, "type": "up"}'
-                    hx-swap="outerHTML"
-                    {{ if not $.LoggedIn }}disabled{{ end }}
-                >
-                    ▲
-                </button>
-                <span class="comment-author">
-                    <a href="/user/{{.By}}">{{.By}}</a>
-                </span>
-                <span class="comment-time">{{timeAgo .Time}}</span>
-                {{ if .Parent }}
-                <a href="#comment-{{.Parent}}" class="comment-parent">parent</a>
-                {{ end }}
-                {{ if $.LoggedIn }}
-                <span class="comment-actions">
-                    <span>|</span>
-                    <a href="#" 
-                       hx-get="/reply/{{.ID}}"
-                       hx-target="#reply-{{.ID}}"
-                       class="action-link">reply</a>
-                    <span>|</span>
-                    <a href="#" 
-                       hx-post="/flag"
-                       hx-vals='{"id": {{.ID}}}'
-                       class="action-link">flag</a>
-                </span>
-                {{ end }}
+            {{ if eq .Parent $.Item.ID }}
+            <div class="comment" id="comment-{{.ID}}">
+                <div class="comment-meta">
+                    <div class="vote-buttons">
+                        <button 
+                            class="vote-button {{ if hasVoted .VoteDir 1 }}voted{{ end }}"
+                            hx-post="/vote"
+                            hx-vals='{"id": {{.ID}}, "type": "up"}'
+                            hx-swap="outerHTML"
+                            {{ if not $.LoggedIn }}disabled{{ end }}
+                        >
+                            ▲
+                        </button>
+                        <button 
+                            class="vote-button {{ if hasVoted .VoteDir -1 }}voted{{ end }}"
+                            hx-post="/vote"
+                            hx-vals='{"id": {{.ID}}, "type": "down"}'
+                            hx-swap="outerHTML"
+                            {{ if not $.LoggedIn }}disabled{{ end }}
+                        >
+                            ▼
+                        </button>
+                    </div>
+                    <span class="comment-author">
+                        <a href="/user/{{.By}}">{{.By}}</a>
+                    </span>
+                    <span class="comment-time">{{timeAgo .Time}}</span>
+                    {{ if .Parent }}
+                    <a href="#comment-{{.Parent}}" class="comment-parent">parent</a>
+                    {{ end }}
+                    {{ if $.LoggedIn }}
+                    <span class="comment-actions">
+                        <span>|</span>
+                        <a href="#" 
+                           hx-get="/reply/{{.ID}}"
+                           hx-target="#reply-{{.ID}}"
+                           class="action-link">reply</a>
+                        <span>|</span>
+                        <a href="#" 
+                           hx-post="/flag"
+                           hx-vals='{"id": {{.ID}}}'
+                           class="action-link">flag</a>
+                    </span>
+                    {{ end }}
+                </div>
+                
+                <div class="comment-text">
+                    {{.Text | unescape}}
+                </div>
+                
+                <div id="reply-{{.ID}}" class="reply-container"></div>
+
+                <!-- Child comments -->
+                <div class="comment-children">
+                    {{ range $.Comments }}
+                        {{ if eq .Parent $.ID }}
+                            {{ template "comment" (dict "Comment" . "Comments" $.Comments "LoggedIn" $.LoggedIn) }}
+                        {{ end }}
+                    {{ end }}
+                </div>
             </div>
-            
-            <div class="comment-text">
-                {{.Text | unescape}}
-            </div>
-            
-            <div id="reply-{{.ID}}" class="reply-container"></div>
-        </div>
+            {{ end }}
         {{ end }}
     </div>
 </div>
@@ -125,6 +147,13 @@
 
 .vote-container {
     flex-shrink: 0;
+}
+
+.vote-buttons {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0;
 }
 
 .item-title {
@@ -213,9 +242,8 @@
 }
 
 .comment {
-    margin: 1rem 0;
+    margin: 0.5rem 0;
     padding-left: 1.5rem;
-    border-left: 1px solid var(--border-color);
 }
 
 .comment-meta {
@@ -249,6 +277,7 @@
     font-size: 0.7rem;
     padding: 0.25rem;
     transition: color 0.2s;
+    line-height: 1;
 }
 
 .vote-button:hover:not(:disabled) {
@@ -286,6 +315,12 @@
     margin-top: 1rem;
 }
 
+.comment-children {
+    margin-left: 2rem;
+    border-left: 1px solid var(--border-color);
+    padding-left: 1rem;
+}
+
 @media (max-width: 768px) {
     .item-container {
         padding: 0.5rem;
@@ -298,8 +333,75 @@
     .item-title {
         font-size: 1.1rem;
     }
+
+    .comment-children {
+        margin-left: 1rem;
+        padding-left: 0.5rem;
+    }
 }
 </style>
+
+{{ define "comment" }}
+<div class="comment" id="comment-{{.Comment.ID}}">
+    <div class="comment-meta">
+        <div class="vote-buttons">
+            <button 
+                class="vote-button {{ if hasVoted .Comment.VoteDir 1 }}voted{{ end }}"
+                hx-post="/vote"
+                hx-vals='{"id": {{.Comment.ID}}, "type": "up"}'
+                hx-swap="outerHTML"
+                {{ if not .LoggedIn }}disabled{{ end }}
+            >
+                ▲
+            </button>
+            <button 
+                class="vote-button {{ if hasVoted .Comment.VoteDir -1 }}voted{{ end }}"
+                hx-post="/vote"
+                hx-vals='{"id": {{.Comment.ID}}, "type": "down"}'
+                hx-swap="outerHTML"
+                {{ if not .LoggedIn }}disabled{{ end }}
+            >
+                ▼
+            </button>
+        </div>
+        <span class="comment-author">
+            <a href="/user/{{.Comment.By}}">{{.Comment.By}}</a>
+        </span>
+        <span class="comment-time">{{timeAgo .Comment.Time}}</span>
+        {{ if .Comment.Parent }}
+        <a href="#comment-{{.Comment.Parent}}" class="comment-parent">parent</a>
+        {{ end }}
+        {{ if .LoggedIn }}
+        <span class="comment-actions">
+            <span>|</span>
+            <a href="#" 
+               hx-get="/reply/{{.Comment.ID}}"
+               hx-target="#reply-{{.Comment.ID}}"
+               class="action-link">reply</a>
+            <span>|</span>
+            <a href="#" 
+               hx-post="/flag"
+               hx-vals='{"id": {{.Comment.ID}}}'
+               class="action-link">flag</a>
+        </span>
+        {{ end }}
+    </div>
+    
+    <div class="comment-text">
+        {{.Comment.Text | unescape}}
+    </div>
+    
+    <div id="reply-{{.Comment.ID}}" class="reply-container"></div>
+
+    <!-- Child comments -->
+    <div class="comment-children">
+        {{ range .Comments }}
+            {{ if eq .Parent $.Comment.ID }}
+                {{ template "comment" (dict "Comment" . "Comments" $.Comments "LoggedIn" $.LoggedIn) }}
+            {{ end }}
+        {{ end }}
+    </div>
+</div>
 {{ end }}
 
 {{ define "reply-form" }}

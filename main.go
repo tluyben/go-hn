@@ -77,6 +77,20 @@ var funcMap = template.FuncMap{
 		}
 		return *dir == val
 	},
+	"dict": func(values ...interface{}) (map[string]interface{}, error) {
+		if len(values)%2 != 0 {
+			return nil, fmt.Errorf("invalid dict call")
+		}
+		dict := make(map[string]interface{}, len(values)/2)
+		for i := 0; i < len(values); i += 2 {
+			key, ok := values[i].(string)
+			if !ok {
+				return nil, fmt.Errorf("dict keys must be strings")
+			}
+			dict[key] = values[i+1]
+		}
+		return dict, nil
+	},
 }
 
 // Initialize search index and HN client
@@ -543,6 +557,9 @@ func main() {
 			return
 		}
 
+		// Create a map to store all comments for O(1) lookup
+		commentMap := make(map[int]*hn.Item)
+
 		// Fetch all comments recursively
 		comments := make([]*hn.Item, 0)
 		if item.Kids != nil && len(item.Kids) > 0 {
@@ -554,15 +571,38 @@ func main() {
 				}
 				if comment != nil && !comment.Dead && !comment.Deleted {
 					comments = append(comments, comment)
+					commentMap[comment.ID] = comment
 					// Recursively fetch child comments
-					fetchChildComments(comment, &comments)
+					fetchChildComments(comment, &comments, commentMap)
+				}
+			}
+		}
+
+		// Sort comments to ensure parent comments come before their children
+		sortedComments := make([]*hn.Item, 0, len(comments))
+		addedComments := make(map[int]bool)
+
+		// First add all top-level comments (those whose parent is the item)
+		for _, comment := range comments {
+			if comment.Parent == item.ID {
+				sortedComments = append(sortedComments, comment)
+				addedComments[comment.ID] = true
+			}
+		}
+
+		// Then add remaining comments in parent-child order
+		for len(sortedComments) < len(comments) {
+			for _, comment := range comments {
+				if !addedComments[comment.ID] && addedComments[comment.Parent] {
+					sortedComments = append(sortedComments, comment)
+					addedComments[comment.ID] = true
 				}
 			}
 		}
 
 		data := createTemplateData(item.Title, "comments-content", r)
 		data["Item"] = item
-		data["Comments"] = comments
+		data["Comments"] = sortedComments
 		data["LoggedIn"] = client.IsLoggedIn()
 
 		tmpl.ExecuteTemplate(w, "base", data)
@@ -788,7 +828,7 @@ func main() {
 }
 
 // Helper function to recursively fetch child comments
-func fetchChildComments(parent *hn.Item, allComments *[]*hn.Item) {
+func fetchChildComments(parent *hn.Item, allComments *[]*hn.Item, commentMap map[int]*hn.Item) {
 	if parent.Kids == nil || len(parent.Kids) == 0 {
 		return
 	}
@@ -801,8 +841,9 @@ func fetchChildComments(parent *hn.Item, allComments *[]*hn.Item) {
 		}
 		if comment != nil && !comment.Dead && !comment.Deleted {
 			*allComments = append(*allComments, comment)
+			commentMap[comment.ID] = comment
 			// Recursively fetch this comment's children
-			fetchChildComments(comment, allComments)
+			fetchChildComments(comment, allComments, commentMap)
 		}
 	}
 }

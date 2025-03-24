@@ -17,7 +17,7 @@
             </div>
             <div class="story-content">
                 <div class="story-title-line">
-                    <a href="{{ if .URL }}{{.URL}}{{ else }}/item/{{.ID}}{{ end }}" class="story-title" target="_blank">
+                    <a href="{{ if .URL }}{{.URL}}{{ else }}/item/{{.ID}}{{ end }}" class="story-title" {{ if .URL }}target="_blank" rel="noopener"{{ end }}>
                         {{.Title}}
                     </a>
                     {{ if .URL }}
@@ -33,11 +33,10 @@
                     </span>
                     {{ if $.LoggedIn }}
                     <span class="story-actions">
+                        <span>|</span>
                         <a href="#" hx-post="/flag" hx-vals='{"id": {{.ID}}}' class="action-link">flag</a>
                         <span>|</span>
                         <a href="#" hx-post="/hide" hx-vals='{"id": {{.ID}}}' class="action-link">hide</a>
-                        <span>|</span>
-                        <a href="/item/{{.ID}}" class="action-link">discuss</a>
                     </span>
                     {{ end }}
                 </div>
@@ -60,6 +59,147 @@
         {{ end }}
     </div>
 </div>
+
+<style>
+.stories-container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 1rem;
+}
+
+.story-items {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.story-item {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.story-meta {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.25rem;
+    min-width: 3rem;
+    text-align: right;
+}
+
+.story-rank {
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+}
+
+.vote-button {
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 0.7rem;
+    padding: 0.25rem;
+    transition: color 0.2s;
+    line-height: 1;
+}
+
+.vote-button:hover:not(:disabled) {
+    color: var(--accent-color);
+}
+
+.vote-button.voted {
+    color: var(--accent-color);
+}
+
+.vote-button:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+
+.story-content {
+    flex-grow: 1;
+    min-width: 0;
+}
+
+.story-title-line {
+    margin-bottom: 0.25rem;
+}
+
+.story-title {
+    color: var(--text-primary);
+    text-decoration: none;
+    font-size: 0.95rem;
+}
+
+.story-title:hover {
+    text-decoration: underline;
+}
+
+.story-domain {
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    margin-left: 0.5rem;
+}
+
+.story-details {
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+}
+
+.story-details a {
+    color: inherit;
+    text-decoration: none;
+}
+
+.story-details a:hover {
+    text-decoration: underline;
+}
+
+.story-details > * + * {
+    margin-left: 0.5rem;
+}
+
+.action-link {
+    color: var(--text-secondary);
+    text-decoration: none;
+}
+
+.action-link:hover {
+    text-decoration: underline;
+}
+
+.pagination {
+    margin-top: 2rem;
+    text-align: center;
+}
+
+.more-link {
+    display: inline-block;
+    padding: 0.5rem 1rem;
+    color: var(--text-primary);
+    text-decoration: none;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    transition: background-color 0.2s;
+}
+
+.more-link:hover {
+    background-color: var(--hover-color);
+}
+
+@media (max-width: 768px) {
+    .stories-container {
+        padding: 0.5rem;
+    }
+    
+    .story-meta {
+        min-width: 2.5rem;
+    }
+    
+    .story-title {
+        font-size: 0.9rem;
+    }
+}
+</style>
 {{ end }}
 
 {{ define "story-items" }}
@@ -79,7 +219,7 @@
     </div>
     <div class="story-content">
         <div class="story-title-line">
-            <a href="{{ if .URL }}{{.URL}}{{ else }}/item/{{.ID}}{{ end }}" class="story-title" target="_blank">
+            <a href="{{ if .URL }}{{.URL}}{{ else }}/item/{{.ID}}{{ end }}" class="story-title" {{ if .URL }}target="_blank" rel="noopener"{{ end }}>
                 {{.Title}}
             </a>
             {{ if .URL }}
@@ -95,11 +235,10 @@
             </span>
             {{ if $.LoggedIn }}
             <span class="story-actions">
+                <span>|</span>
                 <a href="#" hx-post="/flag" hx-vals='{"id": {{.ID}}}' class="action-link">flag</a>
                 <span>|</span>
                 <a href="#" hx-post="/hide" hx-vals='{"id": {{.ID}}}' class="action-link">hide</a>
-                <span>|</span>
-                <a href="/item/{{.ID}}" class="action-link">discuss</a>
             </span>
             {{ end }}
         </div>
