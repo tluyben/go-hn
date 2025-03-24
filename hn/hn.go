@@ -1037,9 +1037,17 @@ func (c *Client) backgroundJobs() {
 			c.currentIdx = (c.currentIdx + 1) % len(c.storyTypes)
 
 			// Fetch stories for the current type with skipCache=true
-			_, err := c.GetStoriesPage(storyType, 1, 30, true)
+			stories, err := c.GetStoriesPage(storyType, 1, 30, true)
 			if err != nil {
 				c.logger.Printf("Error fetching %s: %v", storyType, err)
+				continue
+			}
+
+			// For each story, fetch and cache its item page
+			for _, story := range stories {
+				if _, err := c.GetItemPage(story.ID, true); err != nil {
+					c.logger.Printf("Error caching item page for story %d: %v", story.ID, err)
+				}
 			}
 
 			// Fetch new comments
@@ -1054,4 +1062,149 @@ func (c *Client) backgroundJobs() {
 // IsLoggedIn returns whether the client is currently logged in
 func (c *Client) IsLoggedIn() bool {
 	return c.loggedIn
+}
+
+// ItemPage represents a cached item page with its comments
+type ItemPage struct {
+	Item     *types.Item   `json:"item"`
+	Comments []*types.Item `json:"comments"`
+	CachedAt time.Time     `json:"cached_at"`
+}
+
+// loadItemPageFromCache loads an item page from cache
+func (c *Client) loadItemPageFromCache(itemID int) (*ItemPage, error) {
+	// Create cache directory if it doesn't exist
+	if err := os.MkdirAll("./cache", 0755); err != nil {
+		return nil, fmt.Errorf("failed to create cache directory: %v", err)
+	}
+
+	cacheFile := fmt.Sprintf("./cache/%d.json", itemID)
+	data, err := os.ReadFile(cacheFile)
+	if err != nil {
+		return nil, err
+	}
+
+	var page ItemPage
+	if err := json.Unmarshal(data, &page); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal cache file: %v", err)
+	}
+
+	return &page, nil
+}
+
+// writeItemPageToCache writes an item page to cache
+func (c *Client) writeItemPageToCache(itemID int, page *ItemPage) error {
+	// Create cache directory if it doesn't exist
+	if err := os.MkdirAll("./cache", 0755); err != nil {
+		return fmt.Errorf("failed to create cache directory: %v", err)
+	}
+
+	cacheFile := fmt.Sprintf("./cache/%d.json", itemID)
+	data, err := json.Marshal(page)
+	if err != nil {
+		return fmt.Errorf("failed to marshal item page: %v", err)
+	}
+
+	if err := os.WriteFile(cacheFile, data, 0644); err != nil {
+		return fmt.Errorf("failed to write cache file: %v", err)
+	}
+
+	return nil
+}
+
+// GetItemPage fetches an item and all its comments, using cache if available
+func (c *Client) GetItemPage(itemID int, skipCache bool) (*ItemPage, error) {
+	// Try to load from cache first if not skipping cache
+	if !skipCache {
+		page, err := c.loadItemPageFromCache(itemID)
+		if err == nil {
+			// Check if cache is fresh enough (less than 5 minutes old)
+			if time.Since(page.CachedAt) < 5*time.Minute {
+				return page, nil
+			}
+		}
+	}
+
+	// Fetch the main item
+	item, err := c.GetItem(itemID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Create a map to store all comments for O(1) lookup
+	commentMap := make(map[int]*types.Item)
+	comments := make([]*types.Item, 0)
+
+	// Fetch all comments recursively if this is a story or comment
+	if (item.Type == "story" || item.Type == "comment") && item.Kids != nil && len(item.Kids) > 0 {
+		for _, kidID := range item.Kids {
+			comment, err := c.GetItem(kidID)
+			if err != nil {
+				c.logger.Printf("Error fetching comment %d: %v", kidID, err)
+				continue
+			}
+			if comment != nil && !comment.Dead && !comment.Deleted {
+				comments = append(comments, comment)
+				commentMap[comment.ID] = comment
+				// Recursively fetch child comments
+				c.fetchChildComments(comment, &comments, commentMap)
+			}
+		}
+	}
+
+	// Sort comments to ensure parent comments come before their children
+	sortedComments := make([]*types.Item, 0, len(comments))
+	addedComments := make(map[int]bool)
+
+	// First add all top-level comments
+	for _, comment := range comments {
+		if comment.Parent == item.ID {
+			sortedComments = append(sortedComments, comment)
+			addedComments[comment.ID] = true
+		}
+	}
+
+	// Then add remaining comments in parent-child order
+	for len(sortedComments) < len(comments) {
+		for _, comment := range comments {
+			if !addedComments[comment.ID] && addedComments[comment.Parent] {
+				sortedComments = append(sortedComments, comment)
+				addedComments[comment.ID] = true
+			}
+		}
+	}
+
+	page := &ItemPage{
+		Item:     item,
+		Comments: sortedComments,
+		CachedAt: time.Now(),
+	}
+
+	// Write to cache
+	if err := c.writeItemPageToCache(itemID, page); err != nil {
+		c.logger.Printf("Failed to write item page to cache: %v", err)
+	}
+
+	return page, nil
+}
+
+// fetchChildComments is a helper function to recursively fetch child comments
+func (c *Client) fetchChildComments(parent *types.Item, allComments *[]*types.Item, commentMap map[int]*types.Item) {
+	if parent.Kids == nil || len(parent.Kids) == 0 {
+		return
+	}
+
+	for _, kidID := range parent.Kids {
+		comment, err := c.GetItem(kidID)
+		if err != nil {
+			c.logger.Printf("Error fetching child comment %d: %v", kidID, err)
+			continue
+		}
+		if comment != nil && !comment.Dead && !comment.Deleted {
+			*allComments = append(*allComments, comment)
+			commentMap[comment.ID] = comment
+			// Recursively fetch this comment's children
+			c.fetchChildComments(comment, allComments, commentMap)
+		}
+	}
 }

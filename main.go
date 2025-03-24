@@ -391,60 +391,16 @@ func main() {
 			return
 		}
 
-		item, err := getItem(id)
+		// Get the item page from cache or fetch it
+		page, err := client.GetItemPage(id, false)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 
-		// Create a map to store all comments for O(1) lookup
-		commentMap := make(map[int]*types.Item)
-
-		// Fetch all comments recursively
-		comments := make([]*types.Item, 0)
-
-		if item.Kids != nil && len(item.Kids) > 0 {
-			for _, kidID := range item.Kids {
-
-				comment, err := getItem(kidID)
-				if err != nil {
-					log.Printf("Error fetching comment %d: %v", kidID, err)
-					continue
-				}
-				if comment != nil && !comment.Dead && !comment.Deleted {
-					comments = append(comments, comment)
-					commentMap[comment.ID] = comment
-					// Recursively fetch child comments
-					fetchChildComments(comment, &comments, commentMap)
-				}
-			}
-		}
-
-		// Sort comments to ensure parent comments come before their children
-		sortedComments := make([]*types.Item, 0, len(comments))
-		addedComments := make(map[int]bool)
-
-		// First add all top-level comments (those whose parent is the item)
-		for _, comment := range comments {
-			if comment.Parent == item.ID {
-				sortedComments = append(sortedComments, comment)
-				addedComments[comment.ID] = true
-			}
-		}
-
-		// Then add remaining comments in parent-child order
-		for len(sortedComments) < len(comments) {
-			for _, comment := range comments {
-				if !addedComments[comment.ID] && addedComments[comment.Parent] {
-					sortedComments = append(sortedComments, comment)
-					addedComments[comment.ID] = true
-				}
-			}
-		}
-
-		data := createTemplateData(item.Title, "comments-content", r)
-		data["Item"] = item
-		data["Comments"] = sortedComments
+		data := createTemplateData(page.Item.Title, "comments-content", r)
+		data["Item"] = page.Item
+		data["Comments"] = page.Comments
 		data["LoggedIn"] = client.IsLoggedIn()
 
 		tmpl.ExecuteTemplate(w, "base", data)
