@@ -9,6 +9,10 @@
     --hover-bg: #f0f0f0;
     --card-bg: #ffffff;
     --shadow-color: rgba(0, 0, 0, 0.1);
+    --spacing-unit: 1rem;
+    --text-color: var(--text-primary);
+    --primary-color: var(--accent-color);
+    --secondary-text: var(--text-secondary);
 }
 
 [data-theme="dark"] {
@@ -21,6 +25,9 @@
     --hover-bg: #333333;
     --card-bg: #2d2d2d;
     --shadow-color: rgba(0, 0, 0, 0.3);
+    --text-color: var(--text-primary);
+    --primary-color: var(--accent-color);
+    --secondary-text: var(--text-secondary);
 }
 
 /* System theme - applies the same rules as dark/light depending on user preference */
@@ -35,6 +42,9 @@
         --hover-bg: #333333;
         --card-bg: #2d2d2d;
         --shadow-color: rgba(0, 0, 0, 0.3);
+        --text-color: var(--text-primary);
+        --primary-color: var(--accent-color);
+        --secondary-text: var(--text-secondary);
     }
 }
 
@@ -49,6 +59,9 @@
         --hover-bg: #f0f0f0;
         --card-bg: #ffffff;
         --shadow-color: rgba(0, 0, 0, 0.1);
+        --text-color: var(--text-primary);
+        --primary-color: var(--accent-color);
+        --secondary-text: var(--text-secondary);
     }
 }
 
@@ -466,4 +479,107 @@ body {
 
 .more-link:hover {
     background-color: var(--hover-bg);
+}
+
+/* Login Form Styles */
+.auth-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: calc(100vh - 200px);
+    padding: var(--spacing-unit);
+}
+
+.auth-box {
+    background: var(--card-bg);
+    padding: calc(var(--spacing-unit) * 3);
+    border-radius: 8px;
+    box-shadow: 0 2px 4px var(--shadow-color);
+    width: 100%;
+    max-width: 400px;
+}
+
+.auth-box h1 {
+    margin-bottom: calc(var(--spacing-unit) * 2);
+    text-align: center;
+    color: var(--text-primary);
+}
+
+.auth-form {
+    display: flex;
+    flex-direction: column;
+    gap: calc(var(--spacing-unit) * 2);
+}
+
+.form-group {
+    display: flex;
+    flex-direction: column;
+    gap: calc(var(--spacing-unit) / 2);
+}
+
+.form-group label {
+    color: var(--text-primary);
+    font-size: 0.9rem;
+}
+
+.form-group input {
+    padding: var(--spacing-unit);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    font-size: 1rem;
+    background-color: var(--bg-primary);
+    color: var(--text-primary);
+    transition: border-color 0.2s ease;
+}
+
+.form-group input:focus {
+    outline: none;
+    border-color: var(--accent-color);
+}
+
+.error-message {
+    background: #fff2f2;
+    color: #d63031;
+    padding: var(--spacing-unit);
+    border-radius: 4px;
+    margin-bottom: var(--spacing-unit);
+    font-size: 0.9rem;
+}
+
+.auth-links {
+    margin-top: calc(var(--spacing-unit) * 2);
+    text-align: center;
+    font-size: 0.9rem;
+}
+
+.auth-links a {
+    color: var(--accent-color);
+    text-decoration: none;
+}
+
+.auth-links a:hover {
+    text-decoration: underline;
+}
+
+.auth-links span {
+    margin: 0 var(--spacing-unit);
+    color: var(--text-secondary);
+}
+
+/* Submit Button Styles */
+.submit-button {
+    background-color: var(--accent-color);
+    color: white;
+    border: none;
+    padding: 0.5rem 1rem;
+    border-radius: 4px;
+    font-size: 0.95rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: opacity 0.2s;
+    align-self: flex-start;
+}
+
+.submit-button:hover {
+    opacity: 0.9;
 }

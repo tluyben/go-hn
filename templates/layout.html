@@ -82,6 +82,8 @@
         {{ template "comments-content" . }}
         {{ else if eq .Content "comments-list" }}
         {{ template "comments-list" . }}
+        {{ else if eq .Content "login-content" }}
+        {{ template "login-content" . }}
         {{ else }}
         {{ template "stories-content" . }}
         {{ end }}
