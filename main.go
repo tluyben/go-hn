@@ -2,6 +2,7 @@ package main
 
 import (
 	"embed"
+	"encoding/json"
 	"fmt"
 	"html/template"
 	"log"
@@ -17,6 +18,11 @@ import (
 //
 //go:embed static templates
 var content embed.FS
+
+// Settings struct for user preferences
+type Settings struct {
+	Theme string `json:"theme"`
+}
 
 // Template functions
 var funcMap = template.FuncMap{
@@ -56,6 +62,53 @@ var funcMap = template.FuncMap{
 		}
 		return u.Host
 	},
+}
+
+// Get theme from cookie or default to system
+func getTheme(r *http.Request) string {
+	cookie, err := r.Cookie("settings")
+	if err != nil {
+		return "system"
+	}
+
+	var settings Settings
+	if err := json.Unmarshal([]byte(cookie.Value), &settings); err != nil {
+		return "system"
+	}
+
+	return settings.Theme
+}
+
+// Set theme in cookie
+func setTheme(w http.ResponseWriter, theme string) {
+	settings := Settings{Theme: theme}
+	jsonData, _ := json.Marshal(settings)
+	http.SetCookie(w, &http.Cookie{
+		Name:     "settings",
+		Value:    string(jsonData),
+		Path:     "/",
+		MaxAge:   365 * 24 * 60 * 60, // 1 year
+		HttpOnly: true,
+	})
+}
+
+// Get menu state from cookie
+func getMenuState(r *http.Request) string {
+	cookie, err := r.Cookie("menu_state")
+	if err != nil {
+		return ""
+	}
+	return cookie.Value
+}
+
+// Helper function to create template data with common fields
+func createTemplateData(title string, content string, r *http.Request) map[string]interface{} {
+	return map[string]interface{}{
+		"Title":     title,
+		"Content":   content,
+		"Theme":     getTheme(r),
+		"MenuState": getMenuState(r),
+	}
 }
 
 func main() {
@@ -114,13 +167,11 @@ func main() {
 			log.Printf("First story: Title=%s, By=%s, Score=%d", stories[0].Title, stories[0].By, stories[0].Score)
 		}
 
-		data := map[string]interface{}{
-			"Title":    "Hacker News",
-			"Stories":  stories,
-			"Page":     page,
-			"NextPage": page + 1,
-			"MoreLink": len(stories) == perPage,
-		}
+		data := createTemplateData("Hacker News", "stories-content", r)
+		data["Stories"] = stories
+		data["Page"] = page
+		data["NextPage"] = page + 1
+		data["MoreLink"] = len(stories) == perPage
 
 		var templateErr error
 		if r.Header.Get("HX-Request") == "true" {
@@ -154,11 +205,8 @@ func main() {
 			return
 		}
 
-		data := map[string]interface{}{
-			"Title":   item.Title,
-			"Item":    item,
-			"Content": "comments",
-		}
+		data := createTemplateData(item.Title, "comments-content", r)
+		data["Item"] = item
 
 		tmpl.ExecuteTemplate(w, "base", data)
 	})
@@ -172,11 +220,8 @@ func main() {
 			return
 		}
 
-		data := map[string]interface{}{
-			"Title":   username + " - Profile",
-			"User":    user,
-			"Content": "user",
-		}
+		data := createTemplateData(username+" - Profile", "user-content", r)
+		data["User"] = user
 
 		tmpl.ExecuteTemplate(w, "base", data)
 	})
@@ -184,10 +229,7 @@ func main() {
 	// Login handler
 	http.HandleFunc("/login", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "GET" {
-			data := map[string]interface{}{
-				"Title":   "Login",
-				"Content": "login-content",
-			}
+			data := createTemplateData("Login", "login-content", r)
 			tmpl.ExecuteTemplate(w, "base", data)
 			return
 		}
@@ -196,11 +238,7 @@ func main() {
 		password := r.FormValue("password")
 
 		if err := client.Login(username, password); err != nil {
-			data := map[string]interface{}{
-				"Title":   "Login",
-				"Error":   err.Error(),
-				"Content": "login-content",
-			}
+			data := createTemplateData("Login", err.Error(), r)
 			tmpl.ExecuteTemplate(w, "base", data)
 			return
 		}
@@ -211,10 +249,7 @@ func main() {
 	// Submit story handler
 	http.HandleFunc("/submit", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "GET" {
-			data := map[string]interface{}{
-				"Title":   "Submit",
-				"Content": "submit-content",
-			}
+			data := createTemplateData("Submit", "submit-content", r)
 			tmpl.ExecuteTemplate(w, "base", data)
 			return
 		}
@@ -224,16 +259,83 @@ func main() {
 
 		id, err := client.SubmitStory(title, url)
 		if err != nil {
-			data := map[string]interface{}{
-				"Title":   "Submit",
-				"Error":   err.Error(),
-				"Content": "submit-content",
-			}
+			data := createTemplateData("Submit", err.Error(), r)
 			tmpl.ExecuteTemplate(w, "base", data)
 			return
 		}
 
 		http.Redirect(w, r, fmt.Sprintf("/item/%d", id), http.StatusSeeOther)
+	})
+
+	// Theme toggle handler
+	http.HandleFunc("/toggle-theme", func(w http.ResponseWriter, r *http.Request) {
+		currentTheme := getTheme(r)
+		var newTheme string
+
+		switch currentTheme {
+		case "light":
+			newTheme = "dark"
+		case "dark":
+			newTheme = "system"
+		default:
+			newTheme = "light"
+		}
+
+		setTheme(w, newTheme)
+
+		data := createTemplateData("Hacker News", "stories-content", r)
+		tmpl.ExecuteTemplate(w, "base", data)
+	})
+
+	// Menu toggle handler
+	http.HandleFunc("/toggle-menu", func(w http.ResponseWriter, r *http.Request) {
+		// Get current state from cookie
+		cookie, err := r.Cookie("menu_state")
+		isOpen := false
+		if err == nil {
+			isOpen = cookie.Value == "open"
+		}
+
+		// Toggle state
+		isOpen = !isOpen
+		state := "closed"
+		if isOpen {
+			state = "open"
+		}
+
+		// Set new state in cookie
+		http.SetCookie(w, &http.Cookie{
+			Name:     "menu_state",
+			Value:    state,
+			Path:     "/",
+			MaxAge:   365 * 24 * 60 * 60, // 1 year
+			HttpOnly: true,
+		})
+
+		// Return menu HTML with appropriate class
+		w.Header().Set("Content-Type", "text/html")
+		menuHTML := `<div id="mobile-menu" class="nav-links %s">
+			<a href="/newest">new</a>
+			<a href="/front">past</a>
+			<a href="/newcomments">comments</a>
+			<a href="/ask">ask</a>
+			<a href="/show">show</a>
+			<a href="/jobs">jobs</a>
+			<a href="/submit" class="submit-link">submit</a>
+		</div>`
+
+		class := ""
+		if isOpen {
+			class = "show"
+		}
+		w.Write([]byte(fmt.Sprintf(menuHTML, class)))
+
+		// Add script to handle body scroll
+		if isOpen {
+			w.Write([]byte(`<script>document.body.classList.add('menu-open');</script>`))
+		} else {
+			w.Write([]byte(`<script>document.body.classList.remove('menu-open');</script>`))
+		}
 	})
 
 	// Start server
