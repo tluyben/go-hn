@@ -397,7 +397,6 @@ func main() {
 			return
 		}
 
-		fmt.Println("Item", item)
 		// Create a map to store all comments for O(1) lookup
 		commentMap := make(map[int]*types.Item)
 
@@ -408,7 +407,6 @@ func main() {
 			for _, kidID := range item.Kids {
 
 				comment, err := getItem(kidID)
-				fmt.Println("Comment", comment)
 				if err != nil {
 					log.Printf("Error fetching comment %d: %v", kidID, err)
 					continue

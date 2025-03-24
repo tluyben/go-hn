@@ -83,6 +83,13 @@ func (i *Index) IndexItem(item *types.Item) error {
 	// Create a consistent ID format
 	id := fmt.Sprintf("%d", item.ID)
 
+	// Create a copy of the Kids slice to ensure we don't modify the original
+	var kids []int
+	if item.Kids != nil {
+		kids = make([]int, len(item.Kids))
+		copy(kids, item.Kids)
+	}
+
 	searchableItem := &SearchableItem{
 		ID:          item.ID,
 		Type:        item.Type,
@@ -96,7 +103,7 @@ func (i *Index) IndexItem(item *types.Item) error {
 		Descendants: item.Descendants,
 		Rank:        item.Rank,
 		VoteDir:     item.VoteDir,
-		Kids:        item.Kids,
+		Kids:        kids,
 	}
 
 	// Index with the same ID format
@@ -159,10 +166,21 @@ func (i *Index) GetItem(id int) (*SearchableItem, error) {
 		item.Summary = summary.(string)
 	}
 	if kids, ok := hit.Fields["kids"]; ok && kids != nil {
-		kidsArray := kids.([]interface{})
-		item.Kids = make([]int, len(kidsArray))
-		for i, kid := range kidsArray {
-			item.Kids[i] = int(kid.(float64))
+		switch v := kids.(type) {
+		case []interface{}:
+			item.Kids = make([]int, len(v))
+			for i, kid := range v {
+				switch k := kid.(type) {
+				case float64:
+					item.Kids[i] = int(k)
+				case int:
+					item.Kids[i] = k
+				case int64:
+					item.Kids[i] = int(k)
+				}
+			}
+		case []int:
+			item.Kids = v
 		}
 	}
 
