@@ -612,6 +612,7 @@ func (c *Client) GetStoriesPage(storyType string, page, perPage int) ([]Item, er
 	// Calculate start and end indices for the page
 	start := (page - 1) * perPage
 	end := start + perPage
+	fmt.Println("start", start, "end", end, "page", page, "perPage", perPage)
 
 	if storyType == "paststories" {
 		storyType = "beststories"
@@ -644,6 +645,8 @@ func (c *Client) GetStoriesPage(storyType string, page, perPage int) ([]Item, er
 
 	// Get the IDs for this page
 	pageIDs := ids[start:end]
+
+	fmt.Println("pageIDs", pageIDs, start, end, len(ids))
 
 	// Create a channel for results
 	results := make(chan result, len(pageIDs))

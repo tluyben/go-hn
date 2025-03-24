@@ -48,9 +48,9 @@
     
     <div class="pagination">
         {{ if .MoreLink }}
-        <a href="?p={{.NextPage}}" 
+        <a href="/{{.Section}}?p={{.NextPage}}" 
            class="more-link"
-           hx-get="?p={{.NextPage}}&htmx=true"
+           hx-get="/{{.Section}}?p={{.NextPage}}&htmx=true"
            hx-target=".story-items"
            hx-swap="beforeend"
            hx-trigger="click"
