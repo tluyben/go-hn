@@ -283,6 +283,16 @@ func main() {
 	}
 	log.Println("HN client created successfully")
 
+	// Create a custom server with timeouts
+	server := &http.Server{
+		Addr:           ":8080",
+		Handler:        nil, // Will be set to http.DefaultServeMux
+		ReadTimeout:    10 * time.Second,
+		WriteTimeout:   10 * time.Second,
+		MaxHeaderBytes: 1 << 20, // 1MB
+		IdleTimeout:    120 * time.Second,
+	}
+
 	// Serve static files
 	http.Handle("/static/", http.FileServer(http.FS(content)))
 
@@ -687,7 +697,7 @@ func main() {
 
 	// Start server
 	log.Println("Server starting on http://localhost:8080")
-	if err := http.ListenAndServe(":8080", nil); err != nil {
+	if err := server.ListenAndServe(); err != nil {
 		log.Fatalf("Server error: %v", err)
 	}
 }

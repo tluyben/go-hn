@@ -1,6 +1,7 @@
 package hn
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -65,6 +67,9 @@ type Client struct {
 	username   string
 	csrf       string
 	cache      map[int]*Item
+	cacheMu    sync.RWMutex // Mutex to protect cache access
+	logger     *log.Logger
+	semaphore  chan struct{} // Semaphore for limiting concurrent requests
 }
 
 // NewClient creates a new Hacker News client
@@ -74,25 +79,45 @@ func NewClient() (*Client, error) {
 		return nil, err
 	}
 
+	// Create a custom transport with connection pooling
+	transport := &http.Transport{
+		MaxIdleConns:        50, // Reduced from 100
+		MaxIdleConnsPerHost: 5,  // Reduced from 10
+		IdleConnTimeout:     90 * time.Second,
+		DisableCompression:  true,
+		MaxConnsPerHost:     5, // Reduced from 10
+		DisableKeepAlives:   false,
+		ForceAttemptHTTP2:   true,
+	}
+
+	// Create a new logger with a mutex for thread safety
+	logger := log.New(io.Discard, "", log.LstdFlags)
+
 	return &Client{
 		httpClient: &http.Client{
-			Jar:     jar,
-			Timeout: 30 * time.Second,
+			Jar:       jar,
+			Timeout:   30 * time.Second,
+			Transport: transport,
 		},
 		apiBase:    "https://hacker-news.firebaseio.com/v0",
 		webBase:    "https://news.ycombinator.com",
 		searchBase: "https://hn.algolia.com/api/v1",
 		loggedIn:   false,
 		cache:      make(map[int]*Item),
+		logger:     logger,
+		semaphore:  make(chan struct{}, 3), // Limit to 3 concurrent requests
 	}, nil
 }
 
 // GetItem fetches an item by ID, using cache if available
 func (c *Client) GetItem(id int) (*Item, error) {
-	// Check cache first
+	// Check cache first with read lock
+	c.cacheMu.RLock()
 	if item, ok := c.cache[id]; ok {
+		c.cacheMu.RUnlock()
 		return item, nil
 	}
+	c.cacheMu.RUnlock()
 
 	// If not in cache, fetch from HN API
 	url := fmt.Sprintf("%s/item/%d.json", c.apiBase, id)
@@ -107,8 +132,10 @@ func (c *Client) GetItem(id int) (*Item, error) {
 		return nil, err
 	}
 
-	// Cache the item
+	// Cache the item with write lock
+	c.cacheMu.Lock()
 	c.cache[id] = &item
+	c.cacheMu.Unlock()
 
 	return &item, nil
 }
@@ -561,6 +588,12 @@ func (c *Client) Comment(itemID int, text string) error {
 	return nil
 }
 
+// result represents the result of a GetItem operation
+type result struct {
+	item *Item
+	err  error
+}
+
 // GetStoriesPage fetches a specific page of stories
 func (c *Client) GetStoriesPage(storyType string, page, perPage int) ([]Item, error) {
 	if page < 1 {
@@ -606,38 +639,51 @@ func (c *Client) GetStoriesPage(storyType string, page, perPage int) ([]Item, er
 	// Get the IDs for this page
 	pageIDs := ids[start:end]
 
-	// Create a channel to receive items and errors
-	type result struct {
-		item *Item
-		err  error
-	}
+	// Create a channel for results
 	results := make(chan result, len(pageIDs))
+	errors := make(chan error, len(pageIDs))
 
-	// Fetch items concurrently
+	// Fetch items with controlled concurrency
 	for _, id := range pageIDs {
 		go func(id int) {
+			// Acquire semaphore
+			c.semaphore <- struct{}{}
+			defer func() {
+				// Release semaphore
+				<-c.semaphore
+			}()
+
 			item, err := c.GetItem(id)
-			results <- result{item: item, err: err}
+			if err != nil {
+				errors <- fmt.Errorf("failed to fetch item %d: %v", id, err)
+				return
+			}
+			results <- result{item: item, err: nil}
 		}(id)
 	}
 
-	// Collect results in a map to maintain order
+	// Collect results with timeout
 	itemMap := make(map[int]*Item)
-	var lastErr error
-	for range pageIDs {
-		res := <-results
-		if res.err != nil {
-			lastErr = res.err
-			continue
-		}
-		if res.item != nil && (res.item.Type == "story" || res.item.Type == "job") {
-			itemMap[res.item.ID] = res.item
+	timeout := time.After(30 * time.Second)
+	for i := 0; i < len(pageIDs); i++ {
+		select {
+		case res := <-results:
+			if res.err != nil {
+				continue
+			}
+			if res.item != nil && (res.item.Type == "story" || res.item.Type == "job") {
+				itemMap[res.item.ID] = res.item
+			}
+		case err := <-errors:
+			c.logger.Printf("Error fetching item: %v", err)
+		case <-timeout:
+			return nil, fmt.Errorf("timeout while fetching stories")
 		}
 	}
 
-	// If we got no items but had errors, return the last error
-	if len(itemMap) == 0 && lastErr != nil {
-		return nil, fmt.Errorf("failed to fetch any valid stories: %v", lastErr)
+	// If we got no items, return an error
+	if len(itemMap) == 0 {
+		return nil, fmt.Errorf("failed to fetch any valid stories")
 	}
 
 	// Reconstruct the items in the original order with proper ranking
@@ -666,12 +712,10 @@ func (c *Client) GetNewComments(limit int) ([]CommentWithStory, error) {
 		return nil, fmt.Errorf("failed to get max item ID: %v", err)
 	}
 
-	// Create a channel to receive items and errors
-	type result struct {
-		item *Item
-		err  error
-	}
-	results := make(chan result, limit)
+	// Create a worker pool for concurrent requests
+	numWorkers := 5 // Limit concurrent requests
+	jobs := make(chan int, limit*2)
+	results := make(chan result, limit*2)
 
 	// Start from the latest item and work backwards
 	startID := maxID
@@ -680,13 +724,21 @@ func (c *Client) GetNewComments(limit int) ([]CommentWithStory, error) {
 		endID = 0
 	}
 
-	// Fetch items concurrently
-	for id := startID; id > endID; id-- {
-		go func(id int) {
-			item, err := c.GetItem(id)
-			results <- result{item: item, err: err}
-		}(id)
+	// Start workers
+	for w := 0; w < numWorkers; w++ {
+		go func() {
+			for id := range jobs {
+				item, err := c.GetItem(id)
+				results <- result{item: item, err: err}
+			}
+		}()
 	}
+
+	// Send jobs to workers
+	for id := startID; id > endID; id-- {
+		jobs <- id
+	}
+	close(jobs)
 
 	// Collect comments
 	comments := make([]CommentWithStory, 0, limit)
@@ -742,37 +794,56 @@ func (c *Client) GetRootParent(item *Item) (*Item, error) {
 
 // doRequest performs an HTTP request and unmarshals the response
 func (c *Client) doRequest(req *http.Request, v interface{}) error {
-	log.Printf("Making request to: %s", req.URL.String())
+	// Only log in non-concurrent paths
+	if !strings.Contains(req.URL.Path, "/item/") {
+		c.logger.Printf("Making request to: %s", req.URL.String())
+	}
+
+	// Set request context with timeout
+	ctx, cancel := context.WithTimeout(req.Context(), 30*time.Second)
+	defer cancel()
+	req = req.WithContext(ctx)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
+		if err == context.DeadlineExceeded {
+			return fmt.Errorf("request timed out after 30 seconds")
+		}
 		return fmt.Errorf("HTTP request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		// Ensure we read the body to completion to allow connection reuse
+		io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		log.Printf("Request failed with status %d: %s", resp.StatusCode, string(body))
+		c.logger.Printf("Request failed with status %d: %s", resp.StatusCode, string(body))
 		return fmt.Errorf("unexpected status code: %d, body: %s", resp.StatusCode, string(body))
 	}
 
+	// Read the entire body into memory
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		log.Printf("Failed to read response body: %v", err)
+		c.logger.Printf("Failed to read response body: %v", err)
 		return fmt.Errorf("failed to read response body: %v", err)
 	}
 
 	if len(body) == 0 {
-		log.Printf("Empty response body received")
+		c.logger.Printf("Empty response body received")
 		return fmt.Errorf("empty response body")
 	}
 
-	log.Printf("Response body length: %d bytes", len(body))
-	log.Printf("Response body preview: %.200s", string(body))
+	// Only log in non-concurrent paths
+	if !strings.Contains(req.URL.Path, "/item/") {
+		c.logger.Printf("Response body length: %d bytes", len(body))
+		c.logger.Printf("Response body preview: %.200s", string(body))
+	}
 
 	err = json.Unmarshal(body, v)
 	if err != nil {
-		log.Printf("Failed to unmarshal response: %v", err)
+		c.logger.Printf("Failed to unmarshal response: %v", err)
 		return fmt.Errorf("failed to unmarshal response: %v, body: %s", err, string(body))
 	}
 
