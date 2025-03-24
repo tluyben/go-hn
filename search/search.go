@@ -107,8 +107,8 @@ func (i *Index) GetItem(id int) (*SearchableItem, error) {
 	defer i.mu.RUnlock()
 
 	// Create a query to find the document by ID
-	query := bleve.NewTermQuery(fmt.Sprintf("%d", id))
-	query.SetField("id") // Search in the id field specifically
+	query := bleve.NewDocIDQuery([]string{fmt.Sprintf("%d", id)})
+	// query.SetField("id") // Search in the id field specifically
 	searchRequest := bleve.NewSearchRequest(query)
 	searchRequest.Fields = []string{"*"} // Retrieve all fields
 

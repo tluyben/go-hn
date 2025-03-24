@@ -109,6 +109,7 @@ func (c *Client) GetItem(id int) (*types.Item, error) {
 	// Try to get from search index first
 	searchableItem, err := c.searchIndex.GetItem(id)
 	if err == nil {
+		fmt.Println("Search Engine hit for item ", id)
 		// Convert SearchableItem back to hn.Item
 		return &types.Item{
 			ID:          searchableItem.ID,
@@ -127,6 +128,7 @@ func (c *Client) GetItem(id int) (*types.Item, error) {
 	}
 
 	// If not found in index, fetch from HN API
+	fmt.Println("Fetching from HN API for item ", id)
 	url := fmt.Sprintf("%s/item/%d.json", c.apiBase, id)
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -601,6 +603,47 @@ type result struct {
 	err  error
 }
 
+// loadFromCache loads story IDs and items from a cache file
+func (c *Client) loadFromCache(storyType string) ([]types.Item, error) {
+	// Create cache directory if it doesn't exist
+	if err := os.MkdirAll("./cache", 0755); err != nil {
+		return nil, fmt.Errorf("failed to create cache directory: %v", err)
+	}
+
+	cacheFile := fmt.Sprintf("./cache/%s_items.json", storyType)
+	data, err := os.ReadFile(cacheFile)
+	if err != nil {
+		return nil, err
+	}
+
+	var items []types.Item
+	if err := json.Unmarshal(data, &items); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal cache file: %v", err)
+	}
+
+	return items, nil
+}
+
+// writeToCache writes story items to a cache file
+func (c *Client) writeToCache(storyType string, items []types.Item) error {
+	// Create cache directory if it doesn't exist
+	if err := os.MkdirAll("./cache", 0755); err != nil {
+		return fmt.Errorf("failed to create cache directory: %v", err)
+	}
+
+	cacheFile := fmt.Sprintf("./cache/%s_items.json", storyType)
+	data, err := json.Marshal(items)
+	if err != nil {
+		return fmt.Errorf("failed to marshal story items: %v", err)
+	}
+
+	if err := os.WriteFile(cacheFile, data, 0644); err != nil {
+		return fmt.Errorf("failed to write cache file: %v", err)
+	}
+
+	return nil
+}
+
 // GetStoriesPage fetches a specific page of stories
 func (c *Client) GetStoriesPage(storyType string, page, perPage int, skipCache bool) ([]types.Item, error) {
 	if page < 1 {
@@ -613,27 +656,22 @@ func (c *Client) GetStoriesPage(storyType string, page, perPage int, skipCache b
 	// Calculate start and end indices for the page
 	start := (page - 1) * perPage
 	end := start + perPage
-	fmt.Println("start", start, "end", end, "page", page, "perPage", perPage)
 
 	if storyType == "paststories" {
 		storyType = "beststories"
 	}
 
-	var ids []int
+	var items []types.Item
 	var err error
 	var req *http.Request
 	var url string
-	var pageIDs []int
+	var ids []int
 	var results chan result
-	var errors chan error
-	var itemMap map[int]*types.Item
-	var timeout <-chan time.Time
-	var items []types.Item
 
 	// Try to load from cache first if not skipping cache
 	if !skipCache {
-		ids, err = c.loadFromCache(storyType)
-		if err == nil && len(ids) > 0 {
+		items, err = c.loadFromCache(storyType)
+		if err == nil && len(items) > 0 {
 			// Cache hit, proceed with pagination
 			goto paginate
 		}
@@ -655,33 +693,9 @@ func (c *Client) GetStoriesPage(storyType string, page, perPage int, skipCache b
 		return nil, fmt.Errorf("no stories found for type: %s", storyType)
 	}
 
-	// Write to cache if we got new data
-	if !skipCache {
-		if err := c.writeToCache(storyType, ids); err != nil {
-			c.logger.Printf("Failed to write to cache: %v", err)
-		}
-	}
-
-paginate:
-	// Adjust end index if it exceeds the number of stories
-	if end > len(ids) {
-		end = len(ids)
-	}
-	if start >= len(ids) {
-		return nil, fmt.Errorf("page %d exceeds available stories", page)
-	}
-
-	// Get the IDs for this page
-	pageIDs = ids[start:end]
-
-	fmt.Println("pageIDs", pageIDs, start, end, len(ids))
-
-	// Create a channel for results
-	results = make(chan result, len(pageIDs))
-	errors = make(chan error, len(pageIDs))
-
-	// Fetch items with controlled concurrency
-	for _, id := range pageIDs {
+	// Fetch all items concurrently
+	results = make(chan result, len(ids))
+	for _, id := range ids {
 		go func(id int) {
 			// Acquire semaphore
 			c.semaphore <- struct{}{}
@@ -691,89 +705,44 @@ paginate:
 			}()
 
 			item, err := c.GetItem(id)
-			if err != nil {
-				errors <- fmt.Errorf("failed to fetch item %d: %v", id, err)
-				return
-			}
-			results <- result{item: item, err: nil}
+			results <- result{item: item, err: err}
 		}(id)
 	}
 
-	// Collect results with timeout
-	itemMap = make(map[int]*types.Item)
-	timeout = time.After(30 * time.Second)
-	for i := 0; i < len(pageIDs); i++ {
-		select {
-		case res := <-results:
-			if res.err != nil {
-				continue
-			}
-			if res.item != nil && (res.item.Type == "story" || res.item.Type == "job") {
-				itemMap[res.item.ID] = res.item
-			}
-		case err := <-errors:
-			c.logger.Printf("Error fetching item: %v", err)
-		case <-timeout:
-			return nil, fmt.Errorf("timeout while fetching stories")
+	// Collect results
+	items = make([]types.Item, 0, len(ids))
+	for i := range ids {
+		res := <-results
+		if res.err != nil {
+			continue
+		}
+		if res.item != nil && (res.item.Type == "story" || res.item.Type == "job") {
+			// Set the rank when we first get the item
+			res.item.Rank = i + 1
+			items = append(items, *res.item)
 		}
 	}
 
-	// If we got no items, return an error
-	if len(itemMap) == 0 {
-		return nil, fmt.Errorf("failed to fetch any valid stories")
-	}
-
-	// Reconstruct the items in the original order with proper ranking
-	items = make([]types.Item, 0, len(pageIDs))
-	for i, id := range pageIDs {
-		if item, ok := itemMap[id]; ok {
-			item.Rank = start + i + 1
-			items = append(items, *item)
+	// Write to cache if we got new data
+	if !skipCache {
+		if err := c.writeToCache(storyType, items); err != nil {
+			c.logger.Printf("Failed to write to cache: %v", err)
 		}
 	}
 
-	return items, nil
-}
-
-// loadFromCache loads story IDs from a cache file
-func (c *Client) loadFromCache(storyType string) ([]int, error) {
-	// Create cache directory if it doesn't exist
-	if err := os.MkdirAll("./cache", 0755); err != nil {
-		return nil, fmt.Errorf("failed to create cache directory: %v", err)
+paginate:
+	// Adjust end index if it exceeds the number of stories
+	if end > len(items) {
+		end = len(items)
+	}
+	if start >= len(items) {
+		return nil, fmt.Errorf("page %d exceeds available stories", page)
 	}
 
-	cacheFile := fmt.Sprintf("./cache/%s.json", storyType)
-	data, err := os.ReadFile(cacheFile)
-	if err != nil {
-		return nil, err
-	}
+	// Get the items for this page
+	pageItems := items[start:end]
 
-	var ids []int
-	if err := json.Unmarshal(data, &ids); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal cache file: %v", err)
-	}
-
-	return ids, nil
-}
-
-// writeToCache writes story IDs to a cache file
-func (c *Client) writeToCache(storyType string, ids []int) error {
-	// Create cache directory if it doesn't exist
-	if err := os.MkdirAll("./cache", 0755); err != nil {
-		return fmt.Errorf("failed to create cache directory: %v", err)
-	}
-
-	cacheFile := fmt.Sprintf("./cache/%s.json", storyType)
-	data, err := json.Marshal(ids)
-	if err != nil {
-		return fmt.Errorf("failed to marshal story IDs: %v", err)
-	}
-
-	if err := os.WriteFile(cacheFile, data, 0644); err != nil {
-		return fmt.Errorf("failed to write cache file: %v", err)
-	}
-
-	return nil
+	return pageItems, nil
 }
 
 // CommentWithStory represents a comment with its parent story information
